@@ -1,0 +1,68 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+package-lock.json
+services/*/node_modules/
+services/*/package-lock.json
+
+# Build & Distribution
+dist/
+build/
+*.tgz
+services/*/dist/
+
+# Data & Databases
+/data/
+data/
+db.sqlite
+*.sqlite
+*.sqlite-journal
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# IDE & Editor
+.vscode/
+.vscode-insiders/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+docker-compose.override.yaml
+.docker
+caddy_data/
+caddy_config/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.jest/
+.nyc_output/
+
+# Cache
+.cache/
+.eslintcache
+.parcel-cache/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*~
+.DS_Store
+
+# OS
+Thumbs.db

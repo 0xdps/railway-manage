@@ -1,0 +1,71 @@
+# Dependencies - exclude all node_modules directories
+node_modules
+*/node_modules
+*/*/node_modules
+npm-debug.log
+yarn-error.log
+
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.vscode-insiders
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+dist
+build
+.next
+out
+
+# Data
+data
+/data
+
+# Docker
+Dockerfile
+docker-compose.yaml
+.dockerignore
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation
+docs
+*.md
+README.md
+
+# Test
+.test
+coverage
+.jest
+
+# Cache
+.cache
+.eslintcache
+.parcel-cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Miscellaneous
+.env.example
+.nvmrc
+.prettierrc
+.eslintrc*
+tsconfig.json
+jest.config.js

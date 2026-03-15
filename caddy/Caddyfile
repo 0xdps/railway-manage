@@ -1,0 +1,40 @@
+# Caddyfile for Railway-Manage
+# Routes traffic between backend API and frontend UI
+
+:80 {
+  # API routes to backend
+  handle /api/* {
+    reverse_proxy backend:3000
+  }
+
+  # Health check endpoint
+  handle /health {
+    reverse_proxy backend:3000
+  }
+
+  # Static files and frontend routes to Caddy or frontend dev server
+  handle / {
+    # In development, route to Vite dev server
+    reverse_proxy frontend:5173
+  }
+
+  # Default fallback for SPA routing
+  try_files {path} /index.html
+
+  # Compression
+  encode gzip
+
+  # Security headers
+  header {
+    X-Frame-Options "SAMEORIGIN"
+    X-Content-Type-Options "nosniff"
+    X-XSS-Protection "1; mode=block"
+    Referrer-Policy "no-referrer-when-downgrade"
+  }
+
+  # Access logs
+  log {
+    output stdout
+    format json
+  }
+}

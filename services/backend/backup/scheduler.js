@@ -1,0 +1,305 @@
+import cron from 'node-cron';
+import { randomUUID } from 'crypto';
+import logger from '../core/logger.js';
+import db from '../core/db.js';
+import { backupPostgres, backupMySQL } from './workers/index.js';
+import { enforceRetention, cleanupExpiredBackups } from './retention.js';
+
+/**
+ * Backup scheduler powered by node-cron.
+ * Manages periodic backup jobs and cleanup.
+ */
+class BackupScheduler {
+  constructor() {
+    this.tasks = new Map();
+  }
+
+  /**
+   * Initialize scheduler: register all jobs from database.
+   */
+  initialize() {
+    try {
+      // Ensure default jobs exist
+      this._ensureDefaultJobs();
+
+      // Load all enabled jobs and schedule them
+      const jobs = db.all('SELECT * FROM jobs WHERE enabled = 1');
+
+      for (const job of jobs) {
+        this.schedule(job.id, job.schedule, job.job_type);
+      }
+
+      logger.info({ count: jobs.length }, 'Backup scheduler initialized');
+    } catch (error) {
+      logger.error(error, 'Scheduler initialization failed');
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure default backup jobs exist in database.
+   */
+  _ensureDefaultJobs() {
+    const defaults = [
+      { type: 'backup_hourly', schedule: '0 * * * *' }, // Every hour
+      { type: 'backup_daily', schedule: '0 0 * * *' }, // Every day at midnight
+      { type: 'backup_weekly', schedule: '0 0 * * 0' }, // Every Sunday at midnight
+      { type: 'backup_monthly', schedule: '0 0 1 * *' }, // First of month at midnight
+      { type: 'cleanup', schedule: '0 2 * * *' }, // Every day at 2 AM
+    ];
+
+    for (const def of defaults) {
+      const existing = db.get('SELECT id FROM jobs WHERE job_type = :type', {
+        type: def.type,
+      });
+
+      if (!existing) {
+        const jobId = randomUUID();
+        db.run(
+          `INSERT INTO jobs (id, job_type, schedule, enabled) 
+           VALUES (:id, :type, :schedule, 1)`,
+          {
+            id: jobId,
+            type: def.type,
+            schedule: def.schedule,
+          }
+        );
+        logger.info({ jobType: def.type }, 'Created default job');
+      }
+    }
+  }
+
+  /**
+   * Schedule a job.
+   */
+  schedule(jobId, schedule, jobType) {
+    try {
+      // Cancel existing task if any
+      if (this.tasks.has(jobId)) {
+        const task = this.tasks.get(jobId);
+        task.stop();
+        this.tasks.delete(jobId);
+      }
+
+      // Schedule new task
+      const task = cron.schedule(schedule, () => {
+        this._executeJob(jobId, jobType).catch((err) => {
+          logger.error(err, 'Job execution failed');
+        });
+      });
+
+      this.tasks.set(jobId, task);
+      logger.info({ jobId, jobType, schedule }, 'Job scheduled');
+    } catch (error) {
+      logger.error(error, 'Failed to schedule job');
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a scheduled job.
+   */
+  async _executeJob(jobId, jobType) {
+    const startTime = Date.now();
+
+    try {
+      logger.info({ jobType }, 'Executing job');
+
+      switch (jobType) {
+        case 'backup_hourly':
+          await this._runBackups('hourly');
+          break;
+        case 'backup_daily':
+          await this._runBackups('daily');
+          break;
+        case 'backup_weekly':
+          await this._runBackups('weekly');
+          break;
+        case 'backup_monthly':
+          await this._runBackups('monthly');
+          break;
+        case 'cleanup':
+          await cleanupExpiredBackups();
+          break;
+        default:
+          logger.warn({ jobType }, 'Unknown job type');
+      }
+
+      const duration = Date.now() - startTime;
+      db.run(
+        `UPDATE jobs SET last_run_at = :lastRun, next_run_at = :nextRun WHERE id = :id`,
+        {
+          lastRun: Math.floor(Date.now() / 1000),
+          nextRun: Math.floor(Date.now() / 1000) + 3600, // Approximate next run
+          id: jobId,
+        }
+      );
+
+      logger.info({ jobType, duration }, 'Job completed');
+    } catch (error) {
+      logger.error(error, 'Job execution error');
+      db.run(
+        `UPDATE jobs SET last_run_at = :lastRun WHERE id = :id`,
+        {
+          lastRun: Math.floor(Date.now() / 1000),
+          id: jobId,
+        }
+      );
+    }
+  }
+
+  /**
+   * Run backups for a specific schedule.
+   */
+  async _runBackups(schedule) {
+    try {
+      const services = db.all('SELECT * FROM services WHERE enabled = 1');
+
+      for (const service of services) {
+        await this._backupService(service, schedule);
+      }
+
+      logger.info({ schedule, count: services.length }, 'Backup batch completed');
+    } catch (error) {
+      logger.error(error, 'Backup batch failed');
+    }
+  }
+
+  /**
+   * Backup a single service.
+   */
+  async _backupService(service, schedule) {
+    const backupId = randomUUID();
+
+    try {
+      // Create backup record
+      const startedAt = Math.floor(Date.now() / 1000);
+      db.run(
+        `INSERT INTO backups (id, service_id, schedule, started_at, status) 
+         VALUES (:id, :serviceId, :schedule, :startedAt, :status)`,
+        {
+          id: backupId,
+          serviceId: service.id,
+          schedule: schedule,
+          startedAt: startedAt,
+          status: 'running',
+        }
+      );
+
+      logger.info({ serviceId: service.id, schedule }, 'Starting backup');
+
+      let result;
+
+      // Dispatch to appropriate worker
+      if (service.type === 'postgres') {
+        result = await backupPostgres(service.id, service.conn_string, schedule);
+      } else if (service.type === 'mysql') {
+        result = await backupMySQL(service.id, service.conn_string, schedule);
+      } else {
+        throw new Error(`Unsupported service type: ${service.type}`);
+      }
+
+      // Update backup record with success
+      const finishedAt = Math.floor(Date.now() / 1000);
+      db.run(
+        `UPDATE backups SET status = :status, finished_at = :finishedAt, size_bytes = :size, location = :location 
+         WHERE id = :id`,
+        {
+          status: 'success',
+          finishedAt: finishedAt,
+          size: result.size,
+          location: result.filename,
+          id: backupId,
+        }
+      );
+
+      // Enforce retention policy
+      await enforceRetention(service.id);
+
+      // Audit log
+      db.run(
+        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) 
+         VALUES (:id, :action, :actor, :target, :meta, :createdAt)`,
+        {
+          id: randomUUID(),
+          action: 'backup.completed',
+          actor: 'scheduler',
+          target: service.id,
+          meta: JSON.stringify({ schedule, size: result.size }),
+          createdAt: finishedAt,
+        }
+      );
+
+      logger.info(
+        { serviceId: service.id, schedule, size: result.size },
+        'Backup successful'
+      );
+    } catch (error) {
+      logger.error(
+        error,
+        { serviceId: service.id, schedule },
+        'Backup failed'
+      );
+
+      const finishedAt = Math.floor(Date.now() / 1000);
+      db.run(
+        `UPDATE backups SET status = :status, finished_at = :finishedAt, error = :error WHERE id = :id`,
+        {
+          status: 'failed',
+          finishedAt: finishedAt,
+          error: error.message,
+          id: backupId,
+        }
+      );
+
+      // Audit log
+      db.run(
+        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) 
+         VALUES (:id, :action, :actor, :target, :meta, :createdAt)`,
+        {
+          id: randomUUID(),
+          action: 'backup.failed',
+          actor: 'scheduler',
+          target: service.id,
+          meta: JSON.stringify({ schedule, error: error.message }),
+          createdAt: finishedAt,
+        }
+      );
+    }
+  }
+
+  /**
+   * Manually trigger a backup now.
+   */
+  async triggerBackup(serviceId, schedule) {
+    try {
+      const service = db.get(
+        'SELECT * FROM services WHERE id = :id AND enabled = 1',
+        { id: serviceId }
+      );
+
+      if (!service) {
+        throw new Error('Service not found or disabled');
+      }
+
+      await this._backupService(service, schedule);
+      logger.info({ serviceId, schedule }, 'Manual backup triggered');
+    } catch (error) {
+      logger.error(error, 'Manual backup failed');
+      throw error;
+    }
+  }
+
+  /**
+   * Stop all scheduled tasks.
+   */
+  stop() {
+    for (const task of this.tasks.values()) {
+      task.stop();
+    }
+    this.tasks.clear();
+    logger.info('Scheduler stopped');
+  }
+}
+
+export default new BackupScheduler();
