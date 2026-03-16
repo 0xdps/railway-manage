@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, Trash2, Edit2, X, ExternalLink } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, Edit2, X, ExternalLink, Zap } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import MathCaptcha from '../components/MathCaptcha';
 import api from '../api';
 import { useToast } from '../components/Toast';
 
 const SERVICE_TYPES = ['postgres', 'mysql', 'redis'];
+const SCHEDULES     = ['hourly', 'daily', 'weekly', 'monthly'];
 
 const DEFAULT_FORM = {
   name: '',
@@ -31,6 +32,9 @@ export default function ManagedServices() {
   const [saving, setSaving]                   = useState(false);
   const [confirmDelete, setConfirmDelete]     = useState(null);
   const [deleteCaptchaOk, setDeleteCaptchaOk] = useState(false);
+  const [backupFor, setBackupFor]             = useState(null);
+  const [backupSchedule, setBackupSchedule]   = useState('daily');
+  const [triggering, setTriggering]           = useState(false);
 
   useEffect(() => {
     load();
@@ -138,6 +142,20 @@ export default function ManagedServices() {
     }
   }
 
+  async function handleTriggerBackup() {
+    if (!backupFor) return;
+    setTriggering(true);
+    try {
+      await api.triggerBackup(backupFor.railway_service_id, backupSchedule);
+      toast(`Backup triggered for "${backupFor.name}"`, 'success');
+      setBackupFor(null);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setTriggering(false);
+    }
+  }
+
   const topbar = document.getElementById('topbar-actions');
   return (
     <>
@@ -178,10 +196,10 @@ export default function ManagedServices() {
                 <tr>
                   <th style={{ width: '24%' }}>Display Name</th>
                   <th style={{ width: '10%' }}>Type</th>
-                  <th style={{ width: '26%' }}>Railway Service</th>
-                  <th style={{ width: '22%' }}>Env Var</th>
+                  <th style={{ width: '22%' }}>Railway Service</th>
+                  <th style={{ width: '18%' }}>Env Var</th>
                   <th style={{ width: '8%' }}>Active</th>
-                  <th style={{ width: '10%' }}></th>
+                  <th style={{ width: '18%' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -203,6 +221,14 @@ export default function ManagedServices() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
+                          <button
+                            onClick={() => { setBackupFor(svc); setBackupSchedule('daily'); }}
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap' }}
+                            title="Trigger backup now"
+                          >
+                            <Zap size={11} /> Backup Now
+                          </button>
                           <button onClick={() => openEditModal(svc)} className="btn btn-ghost btn-sm" style={{ padding: '3px 7px' }} title="Edit">
                             <Edit2 size={12} />
                           </button>
@@ -388,6 +414,35 @@ export default function ManagedServices() {
               <button onClick={() => { setConfirmDelete(null); setDeleteCaptchaOk(false); }} className="btn btn-ghost">Cancel</button>
               <button onClick={() => handleDelete(confirmDelete.id)} disabled={!deleteCaptchaOk} className="btn btn-danger">
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Backup Trigger Modal ── */}
+      {backupFor && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setBackupFor(null)}>
+          <div className="modal-box" style={{ maxWidth: 360 }}>
+            <div className="modal-header">
+              <span className="modal-title">Trigger Backup</span>
+              <button onClick={() => setBackupFor(null)} className="modal-close"><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Triggering backup for <strong style={{ color: 'var(--text-secondary)' }}>{backupFor.name}</strong>
+            </p>
+            <div className="form-group">
+              <label className="form-label">Schedule Type</label>
+              <CustomSelect
+                options={SCHEDULES.map((s) => ({ value: s, label: s }))}
+                value={backupSchedule}
+                onChange={setBackupSchedule}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setBackupFor(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={triggering} onClick={handleTriggerBackup}>
+                {triggering ? 'Triggering…' : 'Trigger Backup'}
               </button>
             </div>
           </div>
