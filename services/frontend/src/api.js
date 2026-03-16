@@ -95,6 +95,36 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ tags }),
     }),
+
+  // Metrics history (stored per-minute samples, 3h rolling window)
+  getMetricHistory: (serviceId, hours = 3) =>
+    fetchJson(`/api/services/${serviceId}/metrics/history?hours=${hours}`),
+
+  // Restart policy
+  getRestartPolicy: (serviceId) =>
+    fetchJson(`/api/services/${serviceId}/restart-policy`),
+
+  updateRestartPolicy: (serviceId, data) =>
+    fetchJson(`/api/services/${serviceId}/restart-policy`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Variable secrets (on-demand reveal / update)
+  getServiceVariable: (serviceId, key) =>
+    fetchJson(`/api/services/${serviceId}/variable?key=${encodeURIComponent(key)}`),
+
+  updateServiceVariable: (serviceId, key, value) =>
+    fetchJson(`/api/services/${serviceId}/variable?key=${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+
+  updateTypeOverride: (serviceId, typeOverride) =>
+    fetchJson(`/api/services/${serviceId}/type-override`, {
+      method: 'PUT',
+      body: JSON.stringify({ typeOverride }),
+    }),
 };
 
 export default api;

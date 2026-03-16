@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../components/Toast';
@@ -31,21 +32,16 @@ export default function Audit() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <p className="stat-label">Audit Log</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            Last 100 actions across all operations
-          </p>
-        </div>
+    <>
+      {document.getElementById('topbar-actions') && createPortal(
         <button onClick={load} className="btn btn-ghost" disabled={loading}>
           <RefreshCw size={13} />
           Refresh
-        </button>
-      </div>
-
-      <div className="panel">
+        </button>,
+        document.getElementById('topbar-actions'),
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="panel">
         {loading ? (
           <div className="empty-state">Loading…</div>
         ) : auditLog.length === 0 ? (
@@ -77,7 +73,8 @@ export default function Audit() {
           </table>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

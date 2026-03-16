@@ -20,7 +20,7 @@ services:
     volumes:
       - ./services/backend:/app/services/backend
       - backend_node_modules:/app/services/backend/node_modules  # Don't override precompiled Linux modules
-      - ./data:/data
+      - ./data:/app/data
     networks:
       - railway-manage
     restart: unless-stopped
@@ -45,6 +45,7 @@ services:
       NODE_ENV: development
     volumes:
       - ./services/frontend/src:/app/src
+      - ./services/frontend/public:/app/public:ro
       - ./services/frontend/index.html:/app/index.html:ro
       - ./services/frontend/package.json:/app/package.json:ro
       - ./services/frontend/vite.config.js:/app/vite.config.js:ro

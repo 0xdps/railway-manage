@@ -28,7 +28,7 @@ export async function enforceRetention(serviceId) {
         `SELECT id, location FROM backups 
          WHERE service_id = ? AND schedule = ? 
          ORDER BY started_at DESC`,
-        { '?1': serviceId, '?2': schedule }
+        [serviceId, schedule]
       );
 
       if (backups.length > limit) {
@@ -42,7 +42,7 @@ export async function enforceRetention(serviceId) {
             }
 
             // Delete from database
-            db.run('DELETE FROM backups WHERE id = ?', { '?1': backup.id });
+            db.run('DELETE FROM backups WHERE id = ?', [backup.id]);
 
             logger.info(
               { serviceId, schedule, backupId: backup.id },

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 208 64" fill="none">
+  <defs>
+    <linearGradient id="shield" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="track" x1="23" y1="18" x2="41" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff" />
+      <stop offset="1" stop-color="#c7dcff" />
+    </linearGradient>
+  </defs>
+
+  <path d="M32 4L10 13v17c0 12.2 9.5 23.3 22 28 12.5-4.7 22-15.8 22-28V13L32 4z" fill="url(#shield)"/>
+  <path d="M23 17.5h18c.8 0 1.5.7 1.5 1.5 0 .4-.2.8-.4 1.1l-7.5 10.5h8.4c.8 0 1.5.7 1.5 1.5 0 .3-.1.6-.3.9L32.6 46.8a1.5 1.5 0 0 1-2.3-1.9l7.1-10.8H23c-.8 0-1.5-.7-1.5-1.5 0-.3.1-.6.3-.9l10-13.5c.4-.4.8-.7 1.2-.7z" fill="url(#track)"/>
+  <path d="M28.2 52.1h7.6" stroke="#ffffff" stroke-opacity="0.75" stroke-width="2.4" stroke-linecap="round"/>
+
+  <g fill="#e8e8ec">
+    <text x="72" y="31" font-family="'IBM Plex Mono', monospace" font-size="16" font-weight="600" letter-spacing="0.3">railway-manage</text>
+    <text x="72" y="47" font-family="'IBM Plex Sans', sans-serif" font-size="10" font-weight="500" fill="#888896" letter-spacing="0.2">Control plane for backups, jobs and infrastructure</text>
+  </g>
+</svg>

@@ -2,10 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 /**
- * Custom dropdown matching the railway-sercets .custom-select design.
+ * Custom dropdown matching the railway-manage .custom-select design.
  *
  * Props:
- *   options    — [{ value, label }]
+ *   options    — [{ value, label, Icon? }]  Icon is a React component
  *   value      — currently selected value
  *   onChange   — (value) => void
  *   placeholder — label shown when nothing is selected (default "Select…")
@@ -45,6 +45,7 @@ export default function CustomSelect({
 
   const selectedOption = options.find((o) => o.value === value);
   const displayLabel = selectedOption ? selectedOption.label : null;
+  const SelectedIcon = selectedOption?.Icon ?? null;
 
   return (
     <div ref={rootRef} className={`custom-select${className ? ` ${className}` : ''}`}>
@@ -56,7 +57,8 @@ export default function CustomSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`custom-select-value${!displayLabel ? ' placeholder' : ''}`}>
+        <span className={`custom-select-value${!displayLabel ? ' placeholder' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {SelectedIcon && <SelectedIcon />}
           {displayLabel ?? placeholder}
         </span>
         <ChevronDown size={13} className="custom-select-caret" />
@@ -69,18 +71,22 @@ export default function CustomSelect({
               No options
             </div>
           ) : (
-            options.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                role="option"
-                aria-selected={value === opt.value}
-                onClick={() => select(opt)}
-                className={`custom-select-option${value === opt.value ? ' selected' : ''}`}
-              >
-                {opt.label}
-              </button>
-            ))
+            options.map((opt) => {
+              const OptIcon = opt.Icon ?? null;
+              return (
+                <button
+                  key={String(opt.value ?? '__null__')}
+                  type="button"
+                  role="option"
+                  aria-selected={value === opt.value}
+                  onClick={() => select(opt)}
+                  className={`custom-select-option${value === opt.value ? ' selected' : ''}`}
+                >
+                  {OptIcon && <OptIcon />}
+                  {opt.label}
+                </button>
+              );
+            })
           )}
         </div>
       )}

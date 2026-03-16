@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, Check, X } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../components/Toast';
@@ -141,21 +142,16 @@ export default function Jobs() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <p className="stat-label">Scheduled Jobs</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            Click a schedule to edit inline. Toggle to enable/disable.
-          </p>
-        </div>
+    <>
+      {document.getElementById('topbar-actions') && createPortal(
         <button onClick={load} className="btn btn-ghost" disabled={loading}>
           <RefreshCw size={13} />
           Refresh
-        </button>
-      </div>
-
-      <div className="panel">
+        </button>,
+        document.getElementById('topbar-actions'),
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="panel">
         {loading ? (
           <div className="empty-state">Loading…</div>
         ) : jobs.length === 0 ? (
@@ -178,8 +174,9 @@ export default function Jobs() {
             </tbody>
           </table>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

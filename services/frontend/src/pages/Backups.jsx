@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, Play, X } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../components/Toast';
@@ -63,15 +64,9 @@ export default function Backups() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <p className="stat-label">Backups</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            Last 100 backup runs across all managed services
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+    <>
+      {document.getElementById('topbar-actions') && createPortal(
+        <>
           <button onClick={load} className="btn btn-ghost" disabled={loading}>
             <RefreshCw size={13} />
             Refresh
@@ -80,9 +75,10 @@ export default function Backups() {
             <Play size={13} />
             Trigger Now
           </button>
-        </div>
-      </div>
-
+        </>,
+        document.getElementById('topbar-actions'),
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="panel">
         {loading ? (
           <div className="empty-state">Loading…</div>
@@ -175,6 +171,7 @@ export default function Backups() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

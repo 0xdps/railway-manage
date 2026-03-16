@@ -2,38 +2,20 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, RefreshCw, RotateCcw, Github, Package, Server,
-  Globe, Link2, HardDrive, Clock, Cpu,
-  Tag, X, Plus, CheckCircle2, XCircle, AlertTriangle,
-  ChevronRight,
+  Globe, Link2, HardDrive, Clock, Cpu, Copy,
+  Tag, X, CheckCircle2, XCircle, AlertTriangle,
+  Eye, EyeOff, Edit2, MapPin,
 } from 'lucide-react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} from 'recharts';
 import api from '../api';
 import { useToast } from '../components/Toast';
 import { TAG_PALETTE } from './Services';
-
-// detectType and TYPE_COLORS/STATUS_META are local; TAG_PALETTE is shared from Services.
-function detectType(name, source) {
-  const img = (source?.image || '').toLowerCase();
-  const n   = name.toLowerCase();
-  if (img.includes('postgres') || img.includes('postgre') || n.includes('postgres') || n.includes('-db')) return 'PostgreSQL';
-  if (img.includes('mysql')    || img.includes('mariadb')  || n.includes('mysql'))    return 'MySQL';
-  if (img.includes('redis')    || n.includes('redis')      || n.includes('cache'))    return 'Redis';
-  if (img.includes('mongo')    || n.includes('mongo'))                                return 'MongoDB';
-  if (img.includes('nginx')    || n.includes('nginx'))                                return 'Nginx';
-  if (source?.repo)   return 'GitHub';
-  if (source?.image)  return 'Docker';
-  return 'Service';
-}
-
-const TYPE_COLORS = {
-  PostgreSQL: { bg: 'rgba(59,130,246,0.1)',  color: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
-  MySQL:      { bg: 'rgba(234,88,12,0.1)',   color: '#fb923c', border: 'rgba(234,88,12,0.25)'  },
-  Redis:      { bg: 'rgba(239,68,68,0.1)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
-  MongoDB:    { bg: 'rgba(34,197,94,0.1)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'  },
-  Nginx:      { bg: 'rgba(34,197,94,0.1)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'  },
-  GitHub:     { bg: 'rgba(255,255,255,0.05)',color: '#a3a3b8', border: 'rgba(255,255,255,0.1)' },
-  Docker:     { bg: 'rgba(14,165,233,0.1)',  color: '#38bdf8', border: 'rgba(14,165,233,0.25)' },
-  Service:    { bg: 'rgba(255,255,255,0.04)',color: '#7070a0', border: 'rgba(255,255,255,0.08)'},
-};
+import MathCaptcha from '../components/MathCaptcha';
+import { detectType, TypeBadge, TYPE_META, DB_TYPES, ALL_TYPES } from '../utils/serviceTypes';
+import CustomSelect from '../components/CustomSelect';
 
 const STATUS_META = {
   SUCCESS:      { label: 'Running',   cls: 'badge-success', icon: CheckCircle2 },
@@ -101,9 +83,21 @@ function TagEditor({ tags, onSave, saving }) {
     setInput('');
   }
 
+  function addAndSave(inputVal, currentLocal) {
+    const t = inputVal.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+    const next = (t && currentLocal.length < 10 && !currentLocal.includes(t))
+      ? [...currentLocal, t]
+      : currentLocal;
+    setInput('');
+    onSave(next);
+    // optimistically update local so dirty resets
+    setLocal(next);
+  }
+
   function remove(t) { setLocal((l) => l.filter((x) => x !== t)); }
 
   const dirty = JSON.stringify(local) !== JSON.stringify(tags);
+  const canSave = dirty || input.trim().length > 0;
 
   return (
     <div>
@@ -129,23 +123,27 @@ function TagEditor({ tags, onSave, saving }) {
         {local.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No tags yet</span>}
       </div>
 
-      {/* Input */}
+      {/* Input + Save */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(input); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAndSave(input, local); } }}
           placeholder="Type a tag and press Enter…"
           className="form-control"
           style={{ fontSize: 12, padding: '5px 10px', flex: 1 }}
         />
-        <button onClick={() => add(input)} className="btn btn-ghost btn-sm" disabled={!input.trim()}>
-          <Plus size={12} /> Add
+        <button
+          onClick={() => addAndSave(input, local)}
+          disabled={saving || !canSave}
+          className="btn btn-primary btn-sm"
+        >
+          {saving ? 'Saving…' : 'Save tags'}
         </button>
       </div>
 
       {/* Presets */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {PRESET_TAGS.filter((t) => !local.includes(t)).map((t) => (
           <button key={t} onClick={() => add(t)} style={{
             background: 'none', border: '1px solid var(--border)', borderRadius: 3,
@@ -154,17 +152,192 @@ function TagEditor({ tags, onSave, saving }) {
           }}>{t}</button>
         ))}
       </div>
-
-      {dirty && (
-        <button
-          onClick={() => onSave(local)}
-          disabled={saving}
-          className="btn btn-primary btn-sm"
-        >
-          {saving ? 'Saving…' : 'Save tags'}
-        </button>
-      )}
     </div>
+  );
+}
+
+// ─── Metric chart ────────────────────────────────────────────────────────────
+const RANGES = [
+  { label: '30m', minutes: 30 },
+  { label: '1h',  minutes: 60 },
+  { label: '3h',  minutes: 180 },
+];
+
+function SingleChart({ data, color, gradId, unit, domain, label, icon: Icon, currentVal, yAxisWidth = 50, yAxisTickCount = 5 }) {
+  const tickCount = 6;
+  const tickStep  = Math.max(1, Math.floor(data.length / tickCount));
+  const ticks     = data
+    .filter((_, i) => i % tickStep === 0 || i === data.length - 1)
+    .map((d) => d.ts);
+
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      {/* mini header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon size={12} style={{ color }} />
+          <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</span>
+        </div>
+        <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color }}>{currentVal}</span>
+      </div>
+
+      {data.length < 2 ? (
+        <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No data</span>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={140}>
+          <AreaChart data={data} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+                <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis
+              dataKey="ts"
+              ticks={ticks}
+              tickFormatter={(ts) => new Date(ts * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              tick={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--text-muted)' }}
+              axisLine={false} tickLine={false} interval="preserveStartEnd"
+            />
+            <YAxis
+              domain={domain}
+              tickCount={yAxisTickCount}
+              tickFormatter={(v) => `${typeof v === 'number' ? +v.toFixed(1) : v}${unit}`}
+              tick={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--text-muted)' }}
+              axisLine={false} tickLine={false} width={yAxisWidth}
+            />
+            <Tooltip
+              content={({ active, payload, label: ts }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div style={{ background: 'var(--panel-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 11px' }}>
+                    <p style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginBottom: 3 }}>
+                      {new Date(ts * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </p>
+                    <p style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color }}>
+                      {payload[0].value}{unit}
+                    </p>
+                  </div>
+                );
+              }}
+              cursor={{ stroke: color, strokeWidth: 1, strokeDasharray: '4 2' }}
+            />
+            <Area
+              type="monotone" dataKey="value"
+              stroke={color} strokeWidth={1.5}
+              fill={`url(#${gradId})`}
+              dot={false} activeDot={{ r: 3, fill: color, strokeWidth: 0 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+      <p style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 4, textAlign: 'right' }}>
+        {data.length} samples
+      </p>
+    </div>
+  );
+}
+
+function MetricChart({ cpuData, memData, currentCpu, currentMem, range }) {
+  const now    = Math.floor(Date.now() / 1000);
+  const cutoff = now - range * 60;
+
+  const cpuChart = (cpuData || [])
+    .filter((d) => d.ts >= cutoff)
+    .map((d) => ({ ts: d.ts, value: +(d.value * 100).toFixed(2) }));
+
+  const memChart = (memData || [])
+    .filter((d) => d.ts >= cutoff)
+    .map((d) => ({ ts: d.ts, value: +(d.value * 1024).toFixed(1) }));
+
+  return (
+    <div style={{ width: '100%' }}>
+      {/* side-by-side charts */}
+      <div style={{ display: 'flex', gap: 20 }}>
+        <SingleChart
+          data={cpuChart}
+          color="#60a5fa"
+          gradId="gradCpu"
+          unit="%"
+          domain={[0, 100]}
+          label="CPU"
+          icon={Cpu}
+          currentVal={currentCpu != null ? `${(currentCpu * 100).toFixed(1)}%` : '—'}
+        />
+        <div style={{ width: 1, background: 'var(--border)', flexShrink: 0 }} />
+        <SingleChart
+          data={memChart}
+          color="#a78bfa"
+          gradId="gradMem"
+          unit=" MB"
+          domain={['auto', 'auto']}
+          label="Memory"
+          icon={HardDrive}
+          currentVal={currentMem != null ? `${(currentMem * 1024).toFixed(0)} MB` : '—'}
+          yAxisWidth={80}
+          yAxisTickCount={4}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Resources panel (has own range state) ───────────────────────────────────
+function ResourcesPanel({ svc, metricHistory, metrics }) {
+  const [range, setRange] = useState(180);
+  return (
+    <Panel style={{ gridColumn: '1 / -1' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <SectionHead>Resources</SectionHead>
+          {svc.numReplicas > 1 && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 10 }}>
+              <Server size={12} /> {svc.numReplicas} replicas
+            </span>
+          )}
+        </div>
+        <div style={{
+          display: 'flex',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          overflow: 'hidden',
+        }}>
+          {RANGES.map((r, i) => (
+            <button
+              key={r.label}
+              onClick={() => setRange(r.minutes)}
+              style={{
+                padding: '4px 12px',
+                border: 'none',
+                borderLeft: i > 0 ? '1px solid var(--border)' : 'none',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                background: range === r.minutes ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: range === r.minutes ? 'var(--text-primary)' : 'var(--text-muted)',
+                fontWeight: range === r.minutes ? 600 : 400,
+                transition: 'background .15s, color .15s',
+              }}
+            >{r.label}</button>
+          ))}
+        </div>
+      </div>
+      {(metricHistory.cpu.length > 0 || metricHistory.mem.length > 0) ? (
+        <MetricChart
+          cpuData={metricHistory.cpu}
+          memData={metricHistory.mem}
+          currentCpu={metrics?.cpu ?? null}
+          currentMem={metrics?.memoryGB ?? null}
+          range={range}
+        />
+      ) : (
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Metrics not available — service may be sleeping or stopped.</span>
+      )}
+    </Panel>
   );
 }
 
@@ -189,21 +362,43 @@ export default function ServiceDetail() {
   const [restarting, setRestarting]     = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [savingTags, setSavingTags]     = useState(false);
+  const [metricHistory, setMetricHistory] = useState({ cpu: [], mem: [] });
+  const [restartPolicy, setRestartPolicy] = useState(null);
+  const [localPolicy, setLocalPolicy]   = useState(null);
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
-  useEffect(() => { load(); }, [serviceId]);
+  // Env vars
+  const [varKeys, setVarKeys]               = useState([]);
+  const [loadingVarKeys, setLoadingVarKeys] = useState(false);
+  const [revealedVars, setRevealedVars]     = useState({}); // key → plaintext value
+  const revealTimers                         = useRef({});   // key → timeout id
+  const [editVar, setEditVar]               = useState(null); // { key, currentValue, newValue, saving }
+  const [restartCaptchaOk, setRestartCaptchaOk] = useState(false);
+  const [editVarCaptchaOk, setEditVarCaptchaOk] = useState(false);
+
+  useEffect(() => { load(); loadVarKeys(); }, [serviceId]);
 
   async function load() {
     setLoading(true);
     try {
-      const [svcRes, deploymentsRes, managedRes, backupsRes, metricsRes] = await Promise.all([
+      const [svcRes, deploymentsRes, managedRes, backupsRes, metricsRes, historyRes, policyRes] = await Promise.all([
         api.getServices(),
         api.getDeployments(serviceId).catch(() => ({ deployments: [] })),
         api.getManagedServices(),
         api.getBackups().catch(() => ({ backups: [] })),
         api.getMetrics(serviceId).catch(() => ({ metrics: null })),
+        api.getMetricHistory(serviceId, 3).catch(() => ({ cpu: [], mem: [] })),
+        api.getRestartPolicy(serviceId).catch(() => ({ policy: null })),
       ]);
 
       setMetrics(metricsRes?.metrics || null);
+      setMetricHistory(historyRes && (historyRes.cpu || historyRes.mem) ? historyRes : { cpu: [], mem: [] });
+      const pol = policyRes?.policy ?? null;
+      setRestartPolicy(pol);
+      setLocalPolicy(pol ? { ...pol } : {
+        enabled: false, cpu_threshold: null, mem_threshold_gb: null,
+        window_minutes: 5, violation_ratio: 0.8, restart_cron: '', cooldown_minutes: 30,
+      });
 
       const found = (svcRes.services || []).find((s) => s.id === serviceId);
       if (!found) {
@@ -262,6 +457,95 @@ export default function ServiceDetail() {
     }
   }
 
+  async function handleSavePolicy() {
+    setSavingPolicy(true);
+    try {
+      const res = await api.updateRestartPolicy(serviceId, localPolicy);
+      setRestartPolicy(res.policy);
+      setLocalPolicy({ ...res.policy });
+      toast('Restart policy saved', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSavingPolicy(false);
+    }
+  }
+
+  async function loadVarKeys() {
+    setLoadingVarKeys(true);
+    setVarKeys([]);
+    setRevealedVars({});
+    try {
+      const res = await api.getServiceVariableKeys(serviceId);
+      setVarKeys(res.keys || []);
+    } catch (err) {
+      toast(`Could not load variables: ${err.message}`, 'error');
+    } finally {
+      setLoadingVarKeys(false);
+    }
+  }
+
+  function clearReveal(key) {
+    if (revealTimers.current[key]) { clearTimeout(revealTimers.current[key]); delete revealTimers.current[key]; }
+    setRevealedVars((prev) => { const next = { ...prev }; delete next[key]; return next; });
+  }
+
+  async function handleReveal(key) {
+    try {
+      const res = await api.getServiceVariable(serviceId, key);
+      if (revealTimers.current[key]) clearTimeout(revealTimers.current[key]);
+      revealTimers.current[key] = setTimeout(() => {
+        setRevealedVars((prev) => { const next = { ...prev }; delete next[key]; return next; });
+        delete revealTimers.current[key];
+      }, 10000);
+      setRevealedVars((prev) => ({ ...prev, [key]: res.value }));
+    } catch (err) {
+      toast(`Failed to reveal ${key}: ${err.message}`, 'error');
+    }
+  }
+
+  async function handleCopyVar(key) {
+    try {
+      const existing = revealedVars[key];
+      const value = existing != null ? existing : (await api.getServiceVariable(serviceId, key)).value;
+      await navigator.clipboard.writeText(value);
+      toast(`${key} copied`, 'success');
+      if (revealTimers.current[key]) clearTimeout(revealTimers.current[key]);
+      revealTimers.current[key] = setTimeout(() => {
+        setRevealedVars((prev) => { const next = { ...prev }; delete next[key]; return next; });
+        delete revealTimers.current[key];
+      }, 10000);
+      setRevealedVars((prev) => ({ ...prev, [key]: value }));
+    } catch (err) {
+      toast(`Failed to copy ${key}: ${err.message}`, 'error');
+    }
+  }
+
+  async function openEditVar(key) {
+    setEditVarCaptchaOk(false);
+    try {
+      const existing = revealedVars[key];
+      const value = existing != null ? existing : (await api.getServiceVariable(serviceId, key)).value;
+      setEditVar({ key, currentValue: value, newValue: value, saving: false });
+    } catch (err) {
+      toast(`Failed to load variable: ${err.message}`, 'error');
+    }
+  }
+
+  async function handleSaveVar() {
+    if (!editVar || !editVarCaptchaOk) return;
+    setEditVar((v) => ({ ...v, saving: true }));
+    try {
+      await api.updateServiceVariable(serviceId, editVar.key, editVar.newValue);
+      toast(`${editVar.key} updated`, 'success');
+      clearReveal(editVar.key);
+      setEditVar(null);
+    } catch (err) {
+      toast(`Failed to update variable: ${err.message}`, 'error');
+      setEditVar((v) => v ? { ...v, saving: false } : v);
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -277,45 +561,67 @@ export default function ServiceDetail() {
 
   if (!svc) return null;
 
-  const type     = detectType(svc.name, svc.source);
-  const tc       = TYPE_COLORS[type] || TYPE_COLORS.Service;
+  const type     = detectType(svc.name, svc.source, svc.typeOverride);
+  const m        = TYPE_META[type] || TYPE_META.Service;
   const sm       = statusMeta(svc.status);
-  const isDB     = ['PostgreSQL', 'MySQL', 'Redis', 'MongoDB'].includes(type);
+  const isDB     = DB_TYPES.has(type);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* ── Breadcrumb / back ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-        <button onClick={() => navigate('/services')} className="btn btn-ghost btn-sm" style={{ padding: '3px 8px' }}>
-          <ArrowLeft size={12} /> Infrastructure
-        </button>
-        <ChevronRight size={12} />
-        <span style={{ color: 'var(--text-secondary)' }}>{svc.name}</span>
-      </div>
-
       {/* ── Service header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{svc.name}</h1>
-            <span style={{
-              padding: '3px 9px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 500,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-              background: tc.bg, color: tc.color, border: `1px solid ${tc.border}`,
-            }}>{type}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'nowrap' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>{svc.name}</h1>
+            <TypeBadge type={type} />
             <span className={`badge ${sm.cls}`}>{sm.label}</span>
+            {/* Type override — custom select with icons */}
+            <CustomSelect
+              className="custom-select-sm"
+              value={svc.typeOverride || null}
+              onChange={async (val) => {
+                try {
+                  await api.updateTypeOverride(svc.id, val);
+                  setSvc((s) => ({ ...s, typeOverride: val }));
+                  toast('Type updated', 'success');
+                } catch (err) {
+                  toast(`Failed: ${err.message}`, 'error');
+                }
+              }}
+              placeholder="auto-detect"
+              options={[
+                { value: null, label: 'auto-detect' },
+                ...ALL_TYPES.map((t) => ({ value: t, label: t, Icon: TYPE_META[t]?.Icon }))
+              ]}
+            />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 11 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{svc.id}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, flexWrap: 'wrap' }}>
+            {/* Service ID + copy */}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{svc.id}</span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(svc.id); toast('Copied!', 'success'); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', lineHeight: 1 }}
+                title="Copy service ID"
+              >
+                <Copy size={11} />
+              </button>
+            </span>
             {svc.deployedAt && (
-              <span style={{ color: 'var(--text-muted)' }}>
-                <Clock size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                Deployed {relTime(svc.deployedAt)}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
+                <Clock size={10} />
+                <span>{sm.label} · {relTime(svc.deployedAt)}</span>
               </span>
             )}
             {svc.numReplicas > 1 && (
               <span style={{ color: 'var(--text-muted)' }}>{svc.numReplicas} replicas</span>
+            )}
+            {svc.region && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
+                <MapPin size={10} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{svc.region}</span>
+              </span>
             )}
           </div>
         </div>
@@ -338,41 +644,7 @@ export default function ServiceDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
         {/* Resources */}
-        <Panel style={{ gridColumn: '1 / -1' }}>
-          <SectionHead>Resources</SectionHead>
-          <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Cpu size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 10, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>CPU</p>
-                <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                  {metrics?.cpu != null ? `${(metrics.cpu * 100).toFixed(2)}%` : '—'}
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <HardDrive size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 10, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Memory</p>
-                <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                  {metrics?.memoryGB != null ? `${(metrics.memoryGB * 1024).toFixed(0)} MB` : '—'}
-                </p>
-              </div>
-            </div>
-            {svc.numReplicas > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Server size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <div>
-                  <p style={{ fontSize: 10, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Replicas</p>
-                  <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{svc.numReplicas}</p>
-                </div>
-              </div>
-            )}
-            {metrics == null && (
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>Metrics not available — service may be sleeping or stopped.</span>
-            )}
-          </div>
-        </Panel>
+        <ResourcesPanel svc={svc} metricHistory={metricHistory} metrics={metrics} />
 
         {/* Source */}
         <Panel>
@@ -456,7 +728,7 @@ export default function ServiceDetail() {
                   <tr key={v.id}>
                     <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', padding: '6px 0' }}>{v.mountPath}</td>
                     <td style={{ color: 'var(--text-secondary)', padding: '6px 12px 6px 0' }}>{v.sizeMB ? `${(v.sizeMB / 1024).toFixed(1)} GB` : '—'}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{v.id.slice(0, 20)}…</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{v.name || v.id.slice(0, 12) + '…'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -470,58 +742,219 @@ export default function ServiceDetail() {
           <TagEditor tags={svc.tags} onSave={handleSaveTags} saving={savingTags} />
         </Panel>
 
-      </div>
-
-      {/* ── Deployments ── */}
-      <Panel>
-        <SectionHead>Recent Deployments</SectionHead>
-        {deployments.length === 0 ? (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No deployments found</span>
-        ) : (
-          <table className="data-table" style={{ marginTop: 0 }}>
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Commit</th>
-                <th>Branch</th>
-                <th>Started</th>
-                <th>Finished</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deployments.slice(0, 10).map((d) => {
-                const meta = d.meta || {};
-                const shortHash = meta.commitHash ? meta.commitHash.slice(0, 7) : null;
-                const finishedAt = d.statusUpdatedAt || d.updatedAt;
+        {/* Environment Variables */}
+        <Panel>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <SectionHead>Environment Variables</SectionHead>
+            <button onClick={loadVarKeys} disabled={loadingVarKeys} className="btn btn-ghost btn-sm" style={{ padding: '3px 8px' }}>
+              <RefreshCw size={12} style={loadingVarKeys ? { animation: 'spin 0.8s linear infinite' } : {}} />
+              Refresh
+            </button>
+          </div>
+          {varKeys.length === 0 ? (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {loadingVarKeys ? 'Loading…' : 'No variables found for this service.'}
+            </span>
+          ) : (
+            <div style={{ overflowY: 'auto', maxHeight: 252, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[...varKeys]
+                .sort((a, b) => {
+                  const aR = a.startsWith('RAILWAY_');
+                  const bR = b.startsWith('RAILWAY_');
+                  if (aR !== bR) return aR ? 1 : -1;
+                  return a.localeCompare(b);
+                })
+                .map((key) => {
+                const revealed = revealedVars[key];
                 return (
-                  <tr key={d.id}>
-                    <td><DeployStatus status={d.status} /></td>
-                    <td style={{ maxWidth: 260 }}>
-                      {shortHash ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)' }}>{shortHash}</span>
-                          {meta.commitMessage && (
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }} title={meta.commitMessage}>
-                              {meta.commitMessage}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{d.id.slice(0, 8)}…</span>
-                      )}
-                    </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{meta.branch || '—'}</td>
-                    <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{absTime(d.createdAt)}</td>
-                    <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                      {finishedAt && finishedAt !== d.createdAt ? absTime(finishedAt) : '—'}
-                    </td>
-                  </tr>
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 4, background: 'var(--bg-hover)', border: '1px solid var(--border)', flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', flex: '0 0 auto', minWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{key}</span>
+                    {revealed != null ? (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {revealed}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', flex: 1, fontFamily: 'var(--font-mono)' }}>••••••••••••</span>
+                    )}
+                    <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                      <button
+                        onClick={() => revealed != null ? clearReveal(key) : handleReveal(key)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '3px 7px' }}
+                        title={revealed != null ? 'Hide' : 'Read secret'}
+                      >
+                        {revealed != null ? <EyeOff size={11} /> : <Eye size={11} />}
+                      </button>
+                      <button
+                        onClick={() => handleCopyVar(key)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '3px 7px' }}
+                        title="Copy secret"
+                      >
+                        <Copy size={11} />
+                      </button>
+                      <button
+                        onClick={() => openEditVar(key)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '3px 7px' }}
+                        title="Edit secret"
+                      >
+                        <Edit2 size={11} />
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          )}
+        </Panel>
+
+        {/* Recent Deployments (inline, half-width) */}
+        <Panel>
+          <SectionHead>Recent Deployments</SectionHead>
+          {deployments.length === 0 ? (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No deployments found</span>
+          ) : (
+            <div style={{ overflowY: 'auto', maxHeight: 252 }}>
+              <table className="data-table" style={{ marginTop: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Commit</th>
+                    <th>Branch</th>
+                    <th>Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deployments.slice(0, 10).map((d) => {
+                    const meta = d.meta || {};
+                    const shortHash = meta.commitHash ? meta.commitHash.slice(0, 7) : null;
+                    return (
+                      <tr key={d.id}>
+                        <td><DeployStatus status={d.status} /></td>
+                        <td style={{ maxWidth: 140 }}>
+                          {shortHash ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)' }}>{shortHash}</span>
+                              {meta.commitMessage && (
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }} title={meta.commitMessage}>
+                                  {meta.commitMessage}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{d.id.slice(0, 8)}…</span>
+                          )}
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{meta.branch || '—'}</td>
+                        <td style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{absTime(d.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        {/* Restart Policy — not applicable for DB services */}
+        {!isDB && (
+        <Panel style={{ gridColumn: '1 / -1' }}>
+          <SectionHead>Restart Policy</SectionHead>
+          {localPolicy ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!localPolicy.enabled}
+                  onChange={(e) => setLocalPolicy((p) => ({ ...p, enabled: e.target.checked }))}
+                />
+                <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Enable automated restarts</span>
+              </label>
+
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: 14,
+                opacity: localPolicy.enabled ? 1 : 0.45,
+                pointerEvents: localPolicy.enabled ? 'auto' : 'none',
+              }}>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>CPU threshold (%)</label>
+                  <input
+                    type="number" min="0" max="100" step="1"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px' }}
+                    placeholder="e.g. 90"
+                    value={localPolicy.cpu_threshold != null ? +(localPolicy.cpu_threshold * 100).toFixed(0) : ''}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, cpu_threshold: e.target.value === '' ? null : parseFloat(e.target.value) / 100 }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>Memory threshold (GB)</label>
+                  <input
+                    type="number" min="0" step="0.1"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px' }}
+                    placeholder="e.g. 1.5"
+                    value={localPolicy.mem_threshold_gb ?? ''}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, mem_threshold_gb: e.target.value === '' ? null : parseFloat(e.target.value) }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>Window (minutes)</label>
+                  <input
+                    type="number" min="1" max="60" step="1"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px' }}
+                    value={localPolicy.window_minutes ?? 5}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, window_minutes: parseInt(e.target.value, 10) || 5 }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>Violation ratio (%)</label>
+                  <input
+                    type="number" min="0" max="100" step="1"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px' }}
+                    placeholder="e.g. 80"
+                    value={localPolicy.violation_ratio != null ? +(localPolicy.violation_ratio * 100).toFixed(0) : 80}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, violation_ratio: parseFloat(e.target.value) / 100 }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>Scheduled cron (optional)</label>
+                  <input
+                    type="text"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px', fontFamily: 'var(--font-mono)' }}
+                    placeholder="e.g. 0 3 * * *"
+                    value={localPolicy.restart_cron ?? ''}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, restart_cron: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'block', marginBottom: 4 }}>Cooldown (minutes)</label>
+                  <input
+                    type="number" min="1" step="1"
+                    className="form-control" style={{ fontSize: 12, padding: '5px 10px' }}
+                    value={localPolicy.cooldown_minutes ?? 30}
+                    onChange={(e) => setLocalPolicy((p) => ({ ...p, cooldown_minutes: parseInt(e.target.value, 10) || 30 }))}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <button onClick={handleSavePolicy} disabled={savingPolicy} className="btn btn-primary btn-sm">
+                  {savingPolicy ? 'Saving…' : 'Save policy'}
+                </button>
+                {restartPolicy?.last_triggered_at && (
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    Last triggered: {absTime(new Date(restartPolicy.last_triggered_at * 1000).toISOString())}
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading policy…</span>
+          )}
+        </Panel>
         )}
-      </Panel>
+
+      </div>
 
       {/* ── Backups (only for managed / DB services) ── */}
       {isDB && (
@@ -576,6 +1009,48 @@ export default function ServiceDetail() {
             </table>
           )}
         </Panel>
+      )}
+
+      {/* ── Edit variable modal ── */}
+      {editVar && (
+        <div
+          className="modal-backdrop"
+          onClick={(e) => e.target === e.currentTarget && setEditVar(null)}
+        >
+          <div className="modal-box">
+            <div className="modal-header">
+              <span className="modal-title">Edit Variable</span>
+              <button onClick={() => setEditVar(null)} className="modal-close"><X size={14} /></button>
+            </div>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0 4px' }}>
+              {editVar.key}
+            </p>
+            <textarea
+              value={editVar.newValue}
+              onChange={(e) => setEditVar((v) => ({ ...v, newValue: e.target.value }))}
+              rows={4}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 6, padding: '8px 10px',
+                fontFamily: 'var(--font-mono)', fontSize: 12,
+                color: 'var(--text-primary)', resize: 'vertical', outline: 'none',
+                marginBottom: 12,
+              }}
+            />
+            <MathCaptcha onVerified={setEditVarCaptchaOk} />
+            <div className="modal-actions" style={{ marginTop: 12 }}>
+              <button onClick={() => setEditVar(null)} className="btn btn-ghost">Cancel</button>
+              <button
+                onClick={handleSaveVar}
+                disabled={!editVarCaptchaOk || editVar.saving}
+                className="btn btn-primary"
+              >
+                {editVar.saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Confirm restart modal ── */}

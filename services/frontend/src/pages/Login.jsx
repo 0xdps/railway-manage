@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../api';
+import BrandLogo from '../components/BrandLogo';
 
 export default function Login({ onSuccess }) {
   const [key, setKey] = useState('');
@@ -25,17 +26,7 @@ export default function Login({ onSuccess }) {
       <div className="auth-card">
         <div style={{ marginBottom: 28 }}>
           <p className="stat-label" style={{ marginBottom: 4 }}>Control Plane</p>
-          <h1
-            style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: 18,
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              letterSpacing: '-0.01em',
-            }}
-          >
-            Railway Manage
-          </h1>
+          <BrandLogo size="lg" showTagline className="login-brand" />
           <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
             Disaster recovery &amp; operations
           </p>

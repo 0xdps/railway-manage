@@ -81,7 +81,7 @@ body {
 .sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
     padding: 22px 10px;
     color: var(--text-primary);
     font-family: var(--font-mono);
@@ -92,9 +92,48 @@ body {
     margin-bottom: 12px;
 }
 
-.sidebar-brand .brand-mark {
-    color: var(--accent);
+.brand-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.brand-logo-mark {
+    display: block;
+    object-fit: contain;
     flex-shrink: 0;
+    filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.3));
+}
+
+.brand-logo-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.brand-logo-title {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.brand-logo-subtitle {
+    margin-top: 2px;
+    font-family: var(--font-sans);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.login-brand {
+    margin-top: 2px;
 }
 
 .sidebar-section-label {
@@ -139,14 +178,14 @@ body {
 .nav-link:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
-    border-left-color: var(--border-mid);
+    /* border-left-color: var(--border-mid); */
 }
 
 .nav-link.active {
     background: var(--bg-active);
     color: var(--accent);
     font-weight: 500;
-    border-left-color: var(--accent);
+    /* border-left-color: var(--accent); */
 }
 
 .nav-link.danger:hover {
@@ -177,7 +216,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 28px 14px;
+    padding: 0 28px;
+    height: 64px;
+    min-height: 64px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-elevated);
     position: sticky;
@@ -709,6 +750,13 @@ body {
     transform: rotate(180deg);
 }
 
+/* Compact variant — matches badge height */
+.custom-select-sm .custom-select-trigger {
+    padding: 3px 26px 3px 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+}
+
 .custom-select-menu {
     position: absolute;
     z-index: 200;
@@ -735,7 +783,9 @@ body {
     padding: 7px 8px;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     transition: background 0.1s, color 0.1s;
 }
 
@@ -950,6 +1000,6 @@ body {
     .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; padding: 10px; border-right: none; border-bottom: 1px solid var(--border); }
     .main-content { margin-left: 0; }
     .page-body { padding: 14px 16px; }
-    .page-header { padding: 14px 16px; }
+    .page-header { padding: 0 16px; }
     .overview-grid { grid-template-columns: 1fr; gap: 10px; }
 }

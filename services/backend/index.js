@@ -3,6 +3,8 @@ import logger from './core/logger.js';
 import db from './core/db.js';
 import server from './http/server.js';
 import scheduler from './backup/scheduler.js';
+import metricsPoller from './metrics/poller.js';
+import restartMonitor from './restart/monitor.js';
 
 async function main() {
   try {
@@ -14,6 +16,14 @@ async function main() {
     scheduler.initialize();
     logger.info('✓ Backup scheduler initialized');
 
+    // Initialize metrics poller (per-minute samples → SQLite 3h window)
+    metricsPoller.initialize();
+    logger.info('✓ Metrics poller initialized');
+
+    // Initialize restart policy monitor
+    restartMonitor.initialize();
+    logger.info('✓ Restart monitor initialized');
+
     // Start HTTP server
     await server.listen({ port: config.port, host: '0.0.0.0' });
     logger.info({ port: config.port }, '✓ Server listening');
@@ -21,6 +31,8 @@ async function main() {
     // Graceful shutdown
     process.on('SIGINT', async () => {
       logger.info('Shutting down gracefully...');
+      metricsPoller.stop();
+      restartMonitor.stop();
       scheduler.stop();
       await server.close();
       db.close();

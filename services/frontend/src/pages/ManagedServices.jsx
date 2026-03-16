@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
+import MathCaptcha from '../components/MathCaptcha';
 import api from '../api';
 import { useToast } from '../components/Toast';
 
@@ -24,6 +26,7 @@ export default function ManagedServices() {
   const [loadingVars, setLoadingVars] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleteCaptchaOk, setDeleteCaptchaOk] = useState(false);
 
   useEffect(() => {
     load();
@@ -118,23 +121,11 @@ export default function ManagedServices() {
     }
   }
 
+  const topbar = document.getElementById('topbar-actions');
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div>
-          <p className="stat-label">Managed Services</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            Services registered for automated backup. Credentials are never stored — fetched live from Railway.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+    <>
+      {topbar && createPortal(
+        <>
           <button onClick={load} className="btn btn-ghost" disabled={loading}>
             <RefreshCw size={13} />
             Refresh
@@ -143,9 +134,10 @@ export default function ManagedServices() {
             <Plus size={13} />
             Add Service
           </button>
-        </div>
-      </div>
-
+        </>,
+        topbar
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Table */}
       <div className="panel">
         {loading ? (
@@ -316,20 +308,21 @@ export default function ManagedServices() {
 
       {/* Delete Confirmation Modal */}
       {confirmDelete && (
-        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setConfirmDelete(null)}>
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && (setConfirmDelete(null), setDeleteCaptchaOk(false))}>
           <div className="modal-box" style={{ maxWidth: 380 }}>
             <div className="modal-header">
               <span className="modal-title">Confirm Delete</span>
             </div>
-            <div style={{ padding: '8px 0 16px' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+            <div style={{ padding: '8px 0 12px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
                 Remove <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.name}</strong> from managed services?
                 Existing backups are not deleted.
               </p>
+              <MathCaptcha onVerified={setDeleteCaptchaOk} />
             </div>
             <div className="modal-actions">
-              <button onClick={() => setConfirmDelete(null)} className="btn btn-ghost">Cancel</button>
-              <button onClick={() => handleDelete(confirmDelete.id)} className="btn btn-danger">
+              <button onClick={() => { setConfirmDelete(null); setDeleteCaptchaOk(false); }} className="btn btn-ghost">Cancel</button>
+              <button onClick={() => handleDelete(confirmDelete.id)} disabled={!deleteCaptchaOk} className="btn btn-danger">
                 Delete
               </button>
             </div>
@@ -337,5 +330,6 @@ export default function ManagedServices() {
         </div>
       )}
     </div>
+    </>
   );
 }

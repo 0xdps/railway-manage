@@ -1,4 +1,5 @@
-import { Terminal, Github, Package } from 'lucide-react';
+import { Package } from 'lucide-react';
+import BrandLogo from '../components/BrandLogo';
 
 const VERSION = '1.0.0';
 
@@ -29,7 +30,7 @@ export default function About() {
 
         <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Terminal size={28} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <BrandLogo size="lg" />
             <div>
               <p style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
                 railway-manage

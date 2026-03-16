@@ -42,6 +42,31 @@ class DatabaseManager {
         tags       TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL
       )`,
+      // v2 — metric time-series samples (3-hour rolling window)
+      `CREATE TABLE IF NOT EXISTS metric_samples (
+        service_id  TEXT    NOT NULL,
+        measurement TEXT    NOT NULL,
+        ts          INTEGER NOT NULL,
+        value       REAL    NOT NULL,
+        PRIMARY KEY (service_id, measurement, ts)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_metric_samples_lookup
+         ON metric_samples(service_id, measurement, ts DESC)`,
+      // v2 — restart policies
+      `CREATE TABLE IF NOT EXISTS restart_policies (
+        service_id          TEXT    PRIMARY KEY,
+        enabled             INTEGER NOT NULL DEFAULT 0,
+        cpu_threshold       REAL,
+        mem_threshold_gb    REAL,
+        window_minutes      INTEGER NOT NULL DEFAULT 5,
+        violation_ratio     REAL    NOT NULL DEFAULT 0.8,
+        restart_cron        TEXT,
+        cooldown_minutes    INTEGER NOT NULL DEFAULT 30,
+        last_triggered_at   INTEGER,
+        updated_at          INTEGER NOT NULL
+      )`,
+      // v3 — per-service type override
+      `ALTER TABLE service_meta ADD COLUMN type_override TEXT`,
     ];
     for (const sql of migrations) {
       try {

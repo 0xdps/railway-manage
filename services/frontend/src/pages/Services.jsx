@@ -1,36 +1,14 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowRight, Github, Package, Server, Filter,
 } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../components/Toast';
+import { detectType, TypeBadge } from '../utils/serviceTypes';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function detectType(name, source) {
-  const img = (source?.image || '').toLowerCase();
-  const n   = name.toLowerCase();
-  if (img.includes('postgres') || img.includes('postgre') || n.includes('postgres') || n.includes('-db')) return 'PostgreSQL';
-  if (img.includes('mysql') || img.includes('mariadb') || n.includes('mysql'))                              return 'MySQL';
-  if (img.includes('redis') || n.includes('redis') || n.includes('cache'))                                 return 'Redis';
-  if (img.includes('mongo') || n.includes('mongo'))                                                        return 'MongoDB';
-  if (img.includes('nginx') || n.includes('nginx'))                                                        return 'Nginx';
-  if (source?.repo)   return 'GitHub';
-  if (source?.image)  return 'Docker';
-  return 'Service';
-}
-
-const TYPE_COLORS = {
-  PostgreSQL: { bg: 'rgba(59,130,246,0.1)',  color: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
-  MySQL:      { bg: 'rgba(234,88,12,0.1)',   color: '#fb923c', border: 'rgba(234,88,12,0.25)'  },
-  Redis:      { bg: 'rgba(239,68,68,0.1)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
-  MongoDB:    { bg: 'rgba(34,197,94,0.1)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'  },
-  Nginx:      { bg: 'rgba(34,197,94,0.1)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'  },
-  GitHub:     { bg: 'rgba(255,255,255,0.05)',color: '#a3a3b8', border: 'rgba(255,255,255,0.1)' },
-  Docker:     { bg: 'rgba(14,165,233,0.1)',  color: '#38bdf8', border: 'rgba(14,165,233,0.25)' },
-  Service:    { bg: 'rgba(255,255,255,0.04)',color: '#7070a0', border: 'rgba(255,255,255,0.08)'},
-};
 
 const STATUS_META = {
   SUCCESS:      { label: 'Running',   cls: 'badge-success'  },
@@ -62,22 +40,6 @@ function sourceLabel(source) {
   if (source?.repo)  return source.repo.replace(/^https?:\/\//, '');
   if (source?.image) return source.image.split('@')[0];
   return '—';
-}
-
-// ─── Type badge ───────────────────────────────────────────────────────────────
-function TypeBadge({ type }) {
-  const c = TYPE_COLORS[type] || TYPE_COLORS.Service;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 7px', borderRadius: 'var(--radius-sm)',
-      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 500,
-      whiteSpace: 'nowrap', letterSpacing: '0.04em',
-      background: c.bg, color: c.color, border: `1px solid ${c.border}`,
-    }}>
-      {type}
-    </span>
-  );
 }
 
 // ─── Tag chip & input ────────────────────────────────────────────────────────
@@ -138,18 +100,12 @@ export default function Services() {
 
   const allUsedTags = [...new Set(services.flatMap((s) => s.tags))].sort();
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+  const topbar = document.getElementById('topbar-actions');
 
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <p className="stat-label">Infrastructure</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-            {services.length} Railway service{services.length !== 1 ? 's' : ''} — click a row for details
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+  return (
+    <>
+      {topbar && createPortal(
+        <>
           <input
             value={filterName}
             onChange={(e) => setFilterName(e.target.value)}
@@ -175,9 +131,10 @@ export default function Services() {
             <RefreshCw size={13} />
             Refresh
           </button>
-        </div>
-      </div>
-
+        </>,
+        topbar,
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="panel">
         {loading ? (
           <div className="empty-state">Loading…</div>
@@ -190,10 +147,10 @@ export default function Services() {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '26%' }}>Service</th>
+                <th style={{ width: '24%' }}>Service</th>
                 <th style={{ width: '11%' }}>Type</th>
-                <th style={{ width: '23%' }}>Source</th>
-                <th style={{ width: '8%', textAlign: 'center' }}>Volume</th>
+                <th style={{ width: '20%' }}>Source</th>
+                <th style={{ width: '10%' }}>Region</th>
                 <th style={{ width: '11%' }}>Status</th>
                 <th>Tags</th>
                 <th style={{ width: '36px' }}></th>
@@ -201,7 +158,7 @@ export default function Services() {
             </thead>
             <tbody>
               {displayed.map((svc) => {
-                const type = detectType(svc.name, svc.source);
+                const type = detectType(svc.name, svc.source, svc.typeOverride);
                 const sm   = statusMeta(svc.status);
                 return (
                   <tr
@@ -224,9 +181,9 @@ export default function Services() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {svc.volumes.length > 0
-                        ? <span style={{ color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>✓{svc.volumes.length > 1 ? ` ${svc.volumes.length}` : ''}</span>
+                    <td>
+                      {svc.region
+                        ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>{svc.region}</span>
                         : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
                     </td>
                     <td><span className={`badge ${sm.cls}`}>{sm.label}</span></td>
@@ -245,8 +202,8 @@ export default function Services() {
           </table>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
-
 

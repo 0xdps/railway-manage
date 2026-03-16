@@ -66,6 +66,7 @@ class RailwayClient {
                     node {
                       environmentId
                       id
+                      region
                       source {
                         image
                         repo
@@ -152,6 +153,7 @@ class RailwayClient {
       services.push({
         id: node.id,
         name: node.name,
+        region: instance.region || null,
         source: {
           image: src.image || null,
           repo:  src.repo  || null,
@@ -218,8 +220,40 @@ class RailwayClient {
   }
 
   /**
-   * Get latest deployments for a service.
+   * Get a time-series of metric samples for a service.
+   * Returns { cpu: [{ts, value}], mem: [{ts, value}] }
+   * windowMinutes defaults to 65 to cover a full 60s poll cycle with overlap.
    */
+  async getServiceMetricsSeries(serviceId, windowMinutes = 65) {
+    const start = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+
+    const q = `
+      query GetMetricSeries(
+        $projectId: String!, $serviceId: String!, $startDate: DateTime!, $measurements: [MetricMeasurement!]!
+      ) {
+        metrics(
+          projectId: $projectId
+          serviceId: $serviceId
+          startDate: $startDate
+          measurements: $measurements
+        ) {
+          values { ts value }
+        }
+      }
+    `;
+
+    const vars = { projectId: config.railwayProjectId, serviceId, startDate: start };
+
+    const [cpuData, memData] = await Promise.all([
+      this.request(q, { ...vars, measurements: ['CPU_USAGE'] }),
+      this.request(q, { ...vars, measurements: ['MEMORY_USAGE_GB'] }),
+    ]);
+
+    return {
+      cpu: (cpuData?.metrics?.[0]?.values ?? []).filter((v) => v.value != null),
+      mem: (memData?.metrics?.[0]?.values ?? []).filter((v) => v.value != null),
+    };
+  }
   async getDeployments(serviceId, limit = 10) {
     const query = `
       query GetDeployments($serviceId: String!, $limit: Int!) {
@@ -301,6 +335,20 @@ class RailwayClient {
       );
     }
     return value;
+  }
+
+  /**
+   * Upsert (create or update) a variable for a service in an environment.
+   */
+  async updateServiceVariable(serviceId, key, value, environmentId, projectId) {
+    const mutation = `
+      mutation VariableUpsert($input: VariableUpsertInput!) {
+        variableUpsert(input: $input)
+      }
+    `;
+    await this.request(mutation, {
+      input: { projectId, environmentId, serviceId, name: key, value },
+    });
   }
 }
 

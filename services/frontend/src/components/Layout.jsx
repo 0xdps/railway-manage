@@ -9,9 +9,9 @@ import {
   LogOut,
   BookOpen,
   Info,
-  Terminal,
 } from 'lucide-react';
 import api from '../api';
+import BrandLogo from './BrandLogo';
 
 const mainNavItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -50,8 +50,7 @@ export default function Layout({ children, onLogout }) {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <Terminal size={16} className="brand-mark" />
-          railway-manage
+          <BrandLogo size="sm" />
         </div>
 
         <div className="sidebar-section-label">Navigation</div>
@@ -95,6 +94,7 @@ export default function Layout({ children, onLogout }) {
           <div className="page-header-left">
             <h1>{activeItem?.label ?? 'Dashboard'}</h1>
           </div>
+          <div id="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
         </header>
 
         <main className="page-body">{children}</main>

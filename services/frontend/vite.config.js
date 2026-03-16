@@ -5,6 +5,9 @@ const backend = process.env.VITE_API_URL || 'http://localhost:3000';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
   server: {
     proxy: {
       '/api': {

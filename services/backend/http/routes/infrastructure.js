@@ -4,6 +4,7 @@ import railwayClient from '../../railway/client.js';
 import config from '../../core/config.js';
 import logger from '../../core/logger.js';
 import db from '../../core/db.js';
+import restartMonitor from '../../restart/monitor.js';
 
 /**
  * Infrastructure routes: services, metrics, deployments, tags
@@ -24,22 +25,56 @@ export async function registerInfrastructureRoutes(server) {
           config.railwayEnvironmentId
         );
 
-        // Merge in tags from local DB
-        const metaRows = db.all('SELECT service_id, tags FROM service_meta', []);
-        const tagsMap = {};
+        // Merge in tags + type_override from local DB
+        const metaRows = db.all('SELECT service_id, tags, type_override FROM service_meta', []);
+        const metaMap = {};
         for (const row of metaRows) {
-          try { tagsMap[row.service_id] = JSON.parse(row.tags); } catch { tagsMap[row.service_id] = []; }
+          metaMap[row.service_id] = {
+            tags: (() => { try { return JSON.parse(row.tags); } catch { return []; } })(),
+            typeOverride: row.type_override || null,
+          };
         }
 
         const enriched = services.map((svc) => ({
           ...svc,
-          tags: tagsMap[svc.id] || [],
+          tags:         (metaMap[svc.id] || {}).tags         || [],
+          typeOverride: (metaMap[svc.id] || {}).typeOverride || null,
         }));
 
         return { services: enriched };
       } catch (error) {
         logger.error(error, 'Failed to fetch services');
         return reply.status(500).send({ error: 'Failed to fetch services' });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/services/:serviceId/type-override
+   * Body: { typeOverride: string | null }  — persists or clears a type label.
+   */
+  server.put(
+    '/api/services/:serviceId/type-override',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const { typeOverride } = request.body || {};
+        const VALID = ['PostgreSQL', 'MySQL', 'Redis', 'MongoDB', 'Nginx', 'GitHub', 'Docker', 'Service',
+                       'Node.js', 'Python', 'Go', 'PHP', 'Ruby', 'Java', 'Rust', '.NET', 'Elixir', null];
+        if (!VALID.includes(typeOverride ?? null)) {
+          return reply.status(400).send({ error: 'Invalid typeOverride value' });
+        }
+        db.run(
+          `INSERT INTO service_meta (service_id, tags, type_override, created_at)
+           VALUES (?, '[]', ?, ?)
+           ON CONFLICT(service_id) DO UPDATE SET type_override = excluded.type_override`,
+          [serviceId, typeOverride || null, Math.floor(Date.now() / 1000)]
+        );
+        return { typeOverride: typeOverride || null };
+      } catch (error) {
+        logger.error(error, 'Failed to update type override');
+        return reply.status(500).send({ error: 'Failed to update type override' });
       }
     }
   );
@@ -155,6 +190,179 @@ export async function registerInfrastructureRoutes(server) {
         return reply
           .status(500)
           .send({ error: 'Failed to restart service' });
+      }
+    }
+  );
+
+  /**
+   * GET /api/services/:serviceId/metrics/history?hours=3
+   * Returns locally-stored metric_samples for CPU + memory (default 3 hours).
+   */
+  server.get(
+    '/api/services/:serviceId/metrics/history',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const hours = Math.min(Number(request.query.hours) || 3, 3);
+        const since = Math.floor(Date.now() / 1000) - hours * 3600;
+
+        const rows = db.all(
+          `SELECT measurement, ts, value FROM metric_samples
+           WHERE service_id = ? AND ts >= ?
+           ORDER BY measurement, ts ASC`,
+          [serviceId, since]
+        );
+
+        const cpu = rows.filter((r) => r.measurement === 'CPU_USAGE').map((r) => ({ ts: r.ts, value: r.value }));
+        const mem = rows.filter((r) => r.measurement === 'MEMORY_USAGE_GB').map((r) => ({ ts: r.ts, value: r.value }));
+
+        return { cpu, mem };
+      } catch (error) {
+        logger.error(error, 'Failed to fetch metric history');
+        return reply.status(500).send({ error: 'Failed to fetch metric history' });
+      }
+    }
+  );
+
+  /**
+   * GET /api/services/:serviceId/restart-policy
+   */
+  server.get(
+    '/api/services/:serviceId/restart-policy',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const policy = db.get(
+          `SELECT * FROM restart_policies WHERE service_id = ?`,
+          [serviceId]
+        );
+        return { policy: policy || null };
+      } catch (error) {
+        logger.error(error, 'Failed to fetch restart policy');
+        return reply.status(500).send({ error: 'Failed to fetch restart policy' });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/services/:serviceId/restart-policy
+   * Body: { enabled, cpu_threshold, mem_threshold_gb, window_minutes,
+   *         violation_ratio, restart_cron, cooldown_minutes }
+   */
+  server.put(
+    '/api/services/:serviceId/restart-policy',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const {
+          enabled = 0,
+          cpu_threshold = null,
+          mem_threshold_gb = null,
+          window_minutes = 5,
+          violation_ratio = 0.8,
+          restart_cron = null,
+          cooldown_minutes = 30,
+        } = request.body;
+
+        // Input validation
+        if (cpu_threshold != null && (cpu_threshold <= 0 || cpu_threshold > 1)) {
+          return reply.status(400).send({ error: 'cpu_threshold must be between 0 and 1 (e.g. 0.9 for 90%)' });
+        }
+        if (mem_threshold_gb != null && mem_threshold_gb <= 0) {
+          return reply.status(400).send({ error: 'mem_threshold_gb must be positive' });
+        }
+        if (violation_ratio <= 0 || violation_ratio > 1) {
+          return reply.status(400).send({ error: 'violation_ratio must be between 0 and 1' });
+        }
+        if (window_minutes < 1 || window_minutes > 60) {
+          return reply.status(400).send({ error: 'window_minutes must be between 1 and 60' });
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        db.run(
+          `INSERT INTO restart_policies
+             (service_id, enabled, cpu_threshold, mem_threshold_gb, window_minutes,
+              violation_ratio, restart_cron, cooldown_minutes, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(service_id) DO UPDATE SET
+             enabled          = excluded.enabled,
+             cpu_threshold    = excluded.cpu_threshold,
+             mem_threshold_gb = excluded.mem_threshold_gb,
+             window_minutes   = excluded.window_minutes,
+             violation_ratio  = excluded.violation_ratio,
+             restart_cron     = excluded.restart_cron,
+             cooldown_minutes = excluded.cooldown_minutes,
+             updated_at       = excluded.updated_at`,
+          [serviceId, enabled ? 1 : 0, cpu_threshold, mem_threshold_gb,
+           window_minutes, violation_ratio, restart_cron || null, cooldown_minutes, now]
+        );
+
+        const saved = db.get(`SELECT * FROM restart_policies WHERE service_id = ?`, [serviceId]);
+
+        // Reload cron tasks in the monitor with new policy
+        restartMonitor.reloadPolicy(serviceId, saved);
+
+        logger.info({ serviceId }, 'Restart policy updated');
+        return { policy: saved };
+      } catch (error) {
+        logger.error(error, 'Failed to update restart policy');
+        return reply.status(500).send({ error: 'Failed to update restart policy' });
+      }
+    }
+  );
+
+  /**
+   * GET /api/services/:serviceId/variable?key=VAR_NAME
+   * Returns the decrypted value of a single Railway variable (on-demand reveal).
+   */
+  server.get(
+    '/api/services/:serviceId/variable',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const key = String(request.query.key || '').trim();
+        if (!key) return reply.status(400).send({ error: 'key query param is required' });
+        const value = await railwayClient.getServiceVariable(
+          serviceId, key, config.railwayEnvironmentId, config.railwayProjectId
+        );
+        return { value };
+      } catch (error) {
+        logger.error(error, 'Failed to fetch variable value');
+        return reply.status(500).send({ error: 'Failed to fetch variable value' });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/services/:serviceId/variable?key=VAR_NAME
+   * Body: { value: string }  — updates the variable via Railway API.
+   */
+  server.put(
+    '/api/services/:serviceId/variable',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const key = String(request.query.key || '').trim();
+        const { value } = request.body || {};
+        if (!key)           return reply.status(400).send({ error: 'key query param is required' });
+        if (value == null)  return reply.status(400).send({ error: 'value is required' });
+        await railwayClient.updateServiceVariable(
+          serviceId, key, String(value), config.railwayEnvironmentId, config.railwayProjectId
+        );
+        db.run(
+          'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',
+          [randomUUID(), 'variable.update', 'admin', `${serviceId}:${key}`, Math.floor(Date.now() / 1000)]
+        );
+        logger.info({ serviceId, key }, 'Variable updated');
+        return { ok: true };
+      } catch (error) {
+        logger.error(error, 'Failed to update variable');
+        return reply.status(500).send({ error: 'Failed to update variable' });
       }
     }
   );
