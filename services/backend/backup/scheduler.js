@@ -2,8 +2,19 @@ import cron from 'node-cron';
 import { randomUUID } from 'crypto';
 import logger from '../core/logger.js';
 import db from '../core/db.js';
-import { backupPostgres, backupMySQL } from './workers/index.js';
+import config from '../core/config.js';
+import railwayClient from '../railway/client.js';
+import { backupPostgres, backupMySQL, backupRedis } from './workers/index.js';
 import { enforceRetention, cleanupExpiredBackups } from './retention.js';
+
+// Seconds from now until the next run for each job type
+const JOB_INTERVALS = {
+  backup_hourly: 3600,
+  backup_daily: 86400,
+  backup_weekly: 604800,
+  backup_monthly: 30 * 86400,
+  cleanup: 86400,
+};
 
 /**
  * Backup scheduler powered by node-cron.
@@ -126,11 +137,12 @@ class BackupScheduler {
       }
 
       const duration = Date.now() - startTime;
+      const interval = JOB_INTERVALS[jobType] ?? 3600;
       db.run(
         `UPDATE jobs SET last_run_at = :lastRun, next_run_at = :nextRun WHERE id = :id`,
         {
           lastRun: Math.floor(Date.now() / 1000),
-          nextRun: Math.floor(Date.now() / 1000) + 3600, // Approximate next run
+          nextRun: Math.floor(Date.now() / 1000) + interval,
           id: jobId,
         }
       );
@@ -190,11 +202,20 @@ class BackupScheduler {
 
       let result;
 
+      // Fetch the live connection string from Railway — never stored locally
+      const connString = await railwayClient.getServiceVariable(
+        service.railway_service_id,
+        service.env_var_key,
+        config.railwayEnvironmentId
+      );
+
       // Dispatch to appropriate worker
       if (service.type === 'postgres') {
-        result = await backupPostgres(service.id, service.conn_string, schedule);
+        result = await backupPostgres(service.id, connString, schedule);
       } else if (service.type === 'mysql') {
-        result = await backupMySQL(service.id, service.conn_string, schedule);
+        result = await backupMySQL(service.id, connString, schedule);
+      } else if (service.type === 'redis') {
+        result = await backupRedis(service.id, connString, schedule);
       } else {
         throw new Error(`Unsupported service type: ${service.type}`);
       }

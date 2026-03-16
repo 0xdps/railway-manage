@@ -151,8 +151,7 @@ class RailwayClient {
   /**
    * Redeploy (restart) a service - triggers a new deployment.
    */
-  async redeployService(serviceId, environmentId) {
-    const query = `
+  async redeployService(serviceId, environmentId) {    const query = `
       mutation Redeploy($serviceId: String!, $environmentId: String!) {
         serviceInstanceRedeploy(
           serviceId: $serviceId
@@ -170,6 +169,40 @@ class RailwayClient {
     });
 
     return data.serviceInstanceRedeploy || {};
+  }
+
+  /**
+   * Get all variable key names for a service in an environment.
+   * Returns only the keys (names) — values are never sent to the client.
+   */
+  async getServiceVariableKeys(serviceId, environmentId) {
+    const query = `
+      query GetServiceVariables($serviceId: String!, $environmentId: String!) {
+        variables(serviceId: $serviceId, environmentId: $environmentId)
+      }
+    `;
+    const data = await this.request(query, { serviceId, environmentId });
+    return Object.keys(data.variables || {});
+  }
+
+  /**
+   * Fetch the value of a single variable at backup time.
+   * Called server-side only — value is never exposed to the frontend.
+   */
+  async getServiceVariable(serviceId, envVarKey, environmentId) {
+    const query = `
+      query GetServiceVariables($serviceId: String!, $environmentId: String!) {
+        variables(serviceId: $serviceId, environmentId: $environmentId)
+      }
+    `;
+    const data = await this.request(query, { serviceId, environmentId });
+    const value = (data.variables || {})[envVarKey];
+    if (!value) {
+      throw new Error(
+        `Variable "${envVarKey}" not found for service ${serviceId} in environment ${environmentId}`
+      );
+    }
+    return value;
   }
 }
 

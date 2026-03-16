@@ -30,6 +30,13 @@ class Config {
     this.dataDir = process.env.DATA_DIR || './data';
     this.logLevel = process.env.LOG_LEVEL || 'info';
     this.nodeEnv = process.env.NODE_ENV || 'development';
+
+    // CORS: comma-separated list of allowed origins e.g. "https://app.example.com,https://dash.example.com"
+    const originsEnv = process.env.ALLOWED_ORIGINS || '';
+    this.corsOrigins = originsEnv
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
 
   _requireEnv(key) {

@@ -12,7 +12,17 @@ export async function registerAuthRoutes(server) {
    * Body: { key: string }
    * Returns: { admin: bool, message: string }
    */
-  server.post('/api/auth/login', async (request, reply) => {
+  server.post('/api/auth/login', {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '15 minutes',
+        errorResponseBuilder: () => ({
+          error: 'Too many login attempts — try again in 15 minutes',
+        }),
+      },
+    },
+  }, async (request, reply) => {
     const { key } = request.body || {};
     if (!key || typeof key !== 'string') {
       return reply.status(400).send({ error: 'Missing or invalid key' });

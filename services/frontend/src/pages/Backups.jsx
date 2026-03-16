@@ -1,104 +1,183 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Download } from 'lucide-react';
+import { RefreshCw, Play } from 'lucide-react';
 import api from '../api';
+import { useToast } from '../components/Toast';
+
+const SCHEDULES = ['hourly', 'daily', 'weekly', 'monthly'];
+
+function formatSize(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function relativeTime(unixSecs) {
+  if (!unixSecs) return '—';
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(unixSecs * 1000).toLocaleDateString();
+}
 
 export default function Backups() {
+  const toast = useToast();
   const [backups, setBackups] = useState([]);
+  const [managedServices, setManagedServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [triggerModal, setTriggerModal] = useState(false);
+  const [triggerForm, setTriggerForm] = useState({ serviceId: '', schedule: 'daily' });
+  const [triggering, setTriggering] = useState(false);
 
-  useEffect(() => {
-    loadBackups();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function loadBackups() {
+  async function load() {
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await api.getBackups();
-      setBackups(res.backups || []);
+      const [bRes, mRes] = await Promise.all([api.getBackups(), api.getManagedServices()]);
+      setBackups(bRes.backups || []);
+      setManagedServices(mRes.services || []);
     } catch (err) {
-      setError(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <div className="text-center py-12">Loading backups...</div>;
-  if (error)
-    return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        Error: {error}
-      </div>
-    );
+  async function handleTrigger(e) {
+    e.preventDefault();
+    if (!triggerForm.serviceId) { toast('Select a service', 'error'); return; }
+    setTriggering(true);
+    try {
+      await api.triggerBackup(triggerForm.serviceId, triggerForm.schedule);
+      toast('Backup triggered', 'success');
+      setTriggerModal(false);
+      setTimeout(load, 2000);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setTriggering(false);
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Backups</h3>
-        <button onClick={loadBackups} className="btn-secondary flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <p className="stat-label">Backups</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+            Last 100 backup runs across all managed services
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={load} className="btn btn-ghost" disabled={loading}>
+            <RefreshCw size={13} />
+            Refresh
+          </button>
+          <button onClick={() => setTriggerModal(true)} className="btn btn-primary">
+            <Play size={13} />
+            Trigger Now
+          </button>
+        </div>
       </div>
 
-      {backups.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-600">No backups available</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
+      <div className="panel">
+        {loading ? (
+          <div className="empty-state">Loading…</div>
+        ) : backups.length === 0 ? (
+          <div className="empty-state">No backups yet. Add a managed service and trigger one.</div>
+        ) : (
+          <table className="data-table">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Service
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Schedule
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Size
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Date
-                </th>
+              <tr>
+                <th style={{ width: '30%' }}>Service</th>
+                <th style={{ width: '12%' }}>Schedule</th>
+                <th style={{ width: '14%' }}>Status</th>
+                <th style={{ width: '12%' }}>Size</th>
+                <th style={{ width: '16%' }}>Started</th>
+                <th>Duration</th>
               </tr>
             </thead>
             <tbody>
-              {backups.map((backup) => (
-                <tr key={backup.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {backup.service_id}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{backup.schedule}</td>
-                  <td className="px-6 py-4 text-sm">
-                    <span
-                      className={`badge ${
-                        backup.status === 'success'
-                          ? 'badge-success'
-                          : backup.status === 'running'
-                          ? 'badge-info'
-                          : 'badge-error'
-                      }`}
-                    >
-                      {backup.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {backup.size_bytes
-                      ? `${(backup.size_bytes / 1024 / 1024).toFixed(2)} MB`
-                      : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(backup.started_at * 1000).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
+              {backups.map((b) => {
+                const duration = b.finished_at && b.started_at
+                  ? `${b.finished_at - b.started_at}s`
+                  : '—';
+                return (
+                  <tr key={b.id}>
+                    <td className="mono" style={{ fontSize: 11 }}>{b.service_id}</td>
+                    <td>
+                      <span className="badge badge-accent">{b.schedule}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={`badge badge-${
+                          b.status === 'success'
+                            ? 'success'
+                            : b.status === 'failed'
+                            ? 'danger'
+                            : 'warning'
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{formatSize(b.size_bytes)}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{relativeTime(b.started_at)}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{duration}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Trigger modal */}
+      {triggerModal && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setTriggerModal(false)}>
+          <div className="modal-box" style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <span className="modal-title">Trigger Backup</span>
+              <button onClick={() => setTriggerModal(false)} className="btn btn-ghost btn-sm" style={{ padding: '3px 7px' }}>×</button>
+            </div>
+            <form onSubmit={handleTrigger}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">Service</label>
+                  <select
+                    className="form-control"
+                    value={triggerForm.serviceId}
+                    onChange={(e) => setTriggerForm((f) => ({ ...f, serviceId: e.target.value }))}
+                    required
+                  >
+                    <option value="">— Select service —</option>
+                    {managedServices.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Schedule Type</label>
+                  <select
+                    className="form-control"
+                    value={triggerForm.schedule}
+                    onChange={(e) => setTriggerForm((f) => ({ ...f, schedule: e.target.value }))}
+                  >
+                    {SCHEDULES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" onClick={() => setTriggerModal(false)} className="btn btn-ghost">Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={triggering}>
+                  <Play size={12} />
+                  {triggering ? 'Triggering…' : 'Trigger'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

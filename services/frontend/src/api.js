@@ -68,6 +68,27 @@ export const api = {
   // Audit
   getAuditLog: (limit = 100, offset = 0) =>
     fetchJson(`/api/audit?limit=${limit}&offset=${offset}`),
+
+  // Managed Services
+  getManagedServices: () => fetchJson('/api/managed-services'),
+
+  createManagedService: (data) =>
+    fetchJson('/api/managed-services', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateManagedService: (id, data) =>
+    fetchJson(`/api/managed-services/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteManagedService: (id) =>
+    fetchJson(`/api/managed-services/${id}`, { method: 'DELETE' }),
+
+  getServiceVariableKeys: (serviceId) =>
+    fetchJson(`/api/services/${serviceId}/variable-keys`),
 };
 
 export default api;

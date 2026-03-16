@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import cron from 'node-cron';
 import { authHook } from '../middleware/auth.js';
 import logger from '../../core/logger.js';
 import db from '../../core/db.js';
@@ -42,6 +43,9 @@ export async function registerJobsAndAuditRoutes(server) {
         }
 
         if (schedule) {
+          if (!cron.validate(schedule)) {
+            return reply.status(400).send({ error: 'Invalid cron expression' });
+          }
           updates.push('schedule = ?');
           params.push(schedule);
         }
@@ -87,9 +91,11 @@ export async function registerJobsAndAuditRoutes(server) {
     async (request, reply) => {
       try {
         const { limit = 100, offset = 0 } = request.query || {};
+        const cappedLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
+        const cappedOffset = Math.max(parseInt(offset, 10) || 0, 0);
         const auditLog = db.all(
           'SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?',
-          [parseInt(limit, 10), parseInt(offset, 10)]
+          [cappedLimit, cappedOffset]
         );
         return { auditLog };
       } catch (error) {

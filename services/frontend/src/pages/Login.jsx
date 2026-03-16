@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Lock } from 'lucide-react';
 import api from '../api';
 
 export default function Login({ onSuccess }) {
@@ -11,7 +10,6 @@ export default function Login({ onSuccess }) {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
       await api.login(key);
       onSuccess();
@@ -23,58 +21,77 @@ export default function Login({ onSuccess }) {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-railway-50 via-railway-100 to-railway-200">
-      <div className="w-full max-w-md px-6">
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-railway-600 to-railway-800 rounded-full flex items-center justify-center">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-          </div>
-
-          <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
+    <div className="auth-page">
+      <div className="auth-card">
+        <div style={{ marginBottom: 28 }}>
+          <p className="stat-label" style={{ marginBottom: 4 }}>Control Plane</p>
+          <h1
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: 18,
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.01em',
+            }}
+          >
             Railway Manage
           </h1>
-          <p className="text-center text-gray-600 mb-8">
-            Control plane for disaster recovery & operations
-          </p>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="key" className="block text-sm font-medium text-gray-700 mb-2">
-                Admin Key
-              </label>
-              <input
-                id="key"
-                type="password"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                placeholder="Enter your admin key"
-                disabled={loading}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-railway-500 focus:border-transparent outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
-                autoFocus
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !key.trim()}
-              className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Authenticating...' : 'Sign In'}
-            </button>
-          </form>
-
-          <p className="text-center text-gray-500 text-xs mt-6">
-            For security, never share your admin key
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+            Disaster recovery &amp; operations
           </p>
         </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && (
+            <div
+              style={{
+                background: 'var(--danger-bg)',
+                border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: 'var(--radius-md)',
+                padding: '8px 12px',
+                fontSize: 12,
+                color: 'var(--danger)',
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="admin-key">Admin Key</label>
+            <input
+              id="admin-key"
+              type="password"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="Enter your admin key"
+              disabled={loading}
+              className="form-control"
+              autoFocus
+              autoComplete="current-password"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || !key.trim()}
+            className="btn btn-primary"
+            style={{ justifyContent: 'center', marginTop: 4 }}
+          >
+            {loading ? 'Authenticating…' : 'Sign In'}
+          </button>
+        </form>
+
+        <p
+          style={{
+            marginTop: 20,
+            fontSize: 11,
+            color: 'var(--text-muted)',
+            textAlign: 'center',
+          }}
+        >
+          Never share your admin key
+        </p>
       </div>
     </div>
   );

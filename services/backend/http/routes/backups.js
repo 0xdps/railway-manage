@@ -2,6 +2,7 @@ import { authHook } from '../middleware/auth.js';
 import { randomUUID } from 'crypto';
 import logger from '../../core/logger.js';
 import db from '../../core/db.js';
+import scheduler from '../../backup/scheduler.js';
 
 /**
  * Backup and restore routes.
@@ -36,6 +37,9 @@ export async function registerBackupRoutes(server) {
         }
 
         logger.info({ serviceId, schedule }, 'Backup triggered manually');
+
+        // Actually invoke the scheduler — runs the backup worker immediately
+        await scheduler.triggerBackup(serviceId, schedule);
 
         db.run(
           'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',

@@ -78,12 +78,12 @@ docker-down:
 # View logs from all Docker services
 docker-logs:
   #!/usr/bin/env zsh
-  docker-compose -f docker-compose.yaml logs -f
+  docker-compose -f docker-compose.yaml --profile dev logs -f
 
 # View logs for a specific service (backend, frontend, or caddy)
 docker-logs-service service:
   #!/usr/bin/env zsh
-  docker-compose -f docker-compose.yaml logs -f {{service}}
+  docker-compose -f docker-compose.yaml --profile dev logs -f {{service}}
 
 # Rebuild and restart services
 docker-restart:

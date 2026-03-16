@@ -1,86 +1,83 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import api from '../api';
+import { useToast } from '../components/Toast';
+
+function relativeTime(unixSecs) {
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(unixSecs * 1000).toLocaleString();
+}
 
 export default function Audit() {
+  const toast = useToast();
   const [auditLog, setAuditLog] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadAuditLog();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function loadAuditLog() {
+  async function load() {
+    setLoading(true);
     try {
-      setLoading(true);
       const res = await api.getAuditLog(100);
       setAuditLog(res.auditLog || []);
     } catch (err) {
-      setError(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <div className="text-center py-12">Loading audit log...</div>;
-  if (error)
-    return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        Error: {error}
-      </div>
-    );
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Audit Log</h3>
-        <button onClick={loadAuditLog} className="btn-secondary flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <p className="stat-label">Audit Log</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+            Last 100 actions across all operations
+          </p>
+        </div>
+        <button onClick={load} className="btn btn-ghost" disabled={loading}>
+          <RefreshCw size={13} />
           Refresh
         </button>
       </div>
 
-      {auditLog.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-600">No audit entries</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
+      <div className="panel">
+        {loading ? (
+          <div className="empty-state">Loading…</div>
+        ) : auditLog.length === 0 ? (
+          <div className="empty-state">No audit entries yet</div>
+        ) : (
+          <table className="data-table">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Action
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Actor
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Target
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                  Timestamp
-                </th>
+              <tr>
+                <th style={{ width: '28%' }}>Action</th>
+                <th style={{ width: '12%' }}>Actor</th>
+                <th style={{ width: '28%' }}>Target</th>
+                <th>When</th>
               </tr>
             </thead>
             <tbody>
               {auditLog.map((entry) => (
-                <tr key={entry.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {entry.action}
+                <tr key={entry.id}>
+                  <td className="primary mono" style={{ fontSize: 11 }}>{entry.action}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{entry.actor}</td>
+                  <td className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {entry.target ?? '—'}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{entry.actor}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{entry.target || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(entry.created_at * 1000).toLocaleString()}
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                    {relativeTime(entry.created_at)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+

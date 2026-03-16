@@ -1,31 +1,36 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import api from '../api';
 
+function relativeTime(unixSecs) {
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 export default function Dashboard() {
-  const [data, setData] = useState({
-    services: [],
-    backups: [],
-    recentAudit: [],
-  });
+  const [data, setData] = useState({ services: [], backups: [], managedServices: [], recentAudit: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function loadDashboard() {
+  async function load() {
+    setLoading(true);
+    setError('');
     try {
-      const [servicesRes, backupsRes, auditRes] = await Promise.all([
+      const [svcRes, backupsRes, managedRes, auditRes] = await Promise.all([
         api.getServices(),
         api.getBackups(),
-        api.getAuditLog(5),
+        api.getManagedServices(),
+        api.getAuditLog(6),
       ]);
-
       setData({
-        services: servicesRes.services || [],
+        services: svcRes.services || [],
         backups: backupsRes.backups || [],
+        managedServices: managedRes.services || [],
         recentAudit: auditRes.auditLog || [],
       });
     } catch (err) {
@@ -35,95 +40,122 @@ export default function Dashboard() {
     }
   }
 
-  if (loading) return <div className="text-center py-12">Loading...</div>;
-  if (error)
+  if (loading) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        Error: {error}
+      <div className="empty-state">Loading dashboard…</div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          background: 'var(--danger-bg)',
+          border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: 'var(--radius-md)',
+          padding: '10px 14px',
+          color: 'var(--danger)',
+          fontSize: 13,
+        }}
+      >
+        {error}
       </div>
     );
+  }
+
+  const successBackups = data.backups.filter((b) => b.status === 'success').length;
 
   return (
-    <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-gray-600 text-sm font-medium">Services</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {data.services.length}
-              </p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600 opacity-75" />
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div className="stat-card">
+          <p className="stat-label">Infrastructure</p>
+          <p className="stat-value">{data.services.length}</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>Railway services</p>
         </div>
-
-        <div className="card">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-gray-600 text-sm font-medium">Recent Backups</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {data.backups.length}
-              </p>
-            </div>
-            <Clock className="w-8 h-8 text-blue-600 opacity-75" />
-          </div>
+        <div className="stat-card">
+          <p className="stat-label">Managed</p>
+          <p className="stat-value">{data.managedServices.length}</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>Backup targets</p>
         </div>
-
-        <div className="card">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-gray-600 text-sm font-medium">Status</p>
-              <p className="text-3xl font-bold text-green-600 mt-2">Operational</p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600 opacity-75" />
-          </div>
+        <div className="stat-card">
+          <p className="stat-label">Backups</p>
+          <p className="stat-value">{successBackups}</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>Successful</p>
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Backups</h3>
+      {/* Two panels */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Recent backups */}
+        <div className="panel panel-accent">
+          <div className="panel-header">
+            <span className="panel-title">Recent Backups</span>
+            <button onClick={load} className="btn btn-ghost btn-sm" disabled={loading}>
+              <RefreshCw size={12} />
+            </button>
+          </div>
           {data.backups.length === 0 ? (
-            <p className="text-gray-500 text-sm">No backups yet</p>
+            <div className="empty-state" style={{ padding: '24px 16px' }}>No backups yet</div>
           ) : (
-            <div className="space-y-3">
-              {data.backups.slice(0, 5).map((backup) => (
-                <div key={backup.id} className="p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">{backup.service_id}</span>
-                    <span className="badge badge-success">{backup.status}</span>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-1">{backup.schedule} backup</p>
-                </div>
-              ))}
-            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Schedule</th>
+                  <th>Status</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.backups.slice(0, 6).map((b) => (
+                  <tr key={b.id}>
+                    <td className="mono">{b.service_id.slice(0, 8)}</td>
+                    <td>{b.schedule}</td>
+                    <td>
+                      <span className={`badge badge-${b.status === 'success' ? 'success' : b.status === 'failed' ? 'danger' : 'warning'}`}>
+                        {b.status}
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--text-muted)' }}>{relativeTime(b.started_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
 
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Audit Log</h3>
+        {/* Audit log */}
+        <div className="panel">
+          <div className="panel-header">
+            <span className="panel-title">Audit Log</span>
+          </div>
           {data.recentAudit.length === 0 ? (
-            <p className="text-gray-500 text-sm">No activity</p>
+            <div className="empty-state" style={{ padding: '24px 16px' }}>No activity</div>
           ) : (
-            <div className="space-y-3">
-              {data.recentAudit.map((entry) => (
-                <div key={entry.id} className="p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">{entry.action}</span>
-                    <span className="text-xs text-gray-600">
-                      {new Date(entry.created_at * 1000).toLocaleDateString()}
-                    </span>
-                  </div>
-                  {entry.target && <p className="text-sm text-gray-600 mt-1">{entry.target}</p>}
-                </div>
-              ))}
-            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Actor</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recentAudit.map((e) => (
+                  <tr key={e.id}>
+                    <td className="primary mono" style={{ fontSize: 11 }}>{e.action}</td>
+                    <td>{e.actor}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{relativeTime(e.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
     </div>
   );
 }
+

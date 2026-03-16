@@ -30,18 +30,39 @@ class DatabaseManager {
     logger.info({ dbPath }, 'Database initialized');
   }
 
+  /**
+   * Add columns that don't exist yet (safe to run on every boot).
+   */
+  _runMigrations() {
+    const migrations = [
+      `ALTER TABLE services ADD COLUMN railway_service_id TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE services ADD COLUMN env_var_key TEXT NOT NULL DEFAULT ''`,
+    ];
+    for (const sql of migrations) {
+      try {
+        this.db.exec(sql);
+      } catch {
+        // Column already exists — ignore
+      }
+    }
+  }
+
   _initializeSchema() {
-    // Services to back up
+    // Services to back up - uses Railway env var key instead of storing raw credentials
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS services (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         type TEXT NOT NULL,
-        conn_string TEXT NOT NULL,
+        railway_service_id TEXT NOT NULL DEFAULT '',
+        env_var_key TEXT NOT NULL DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL
       )
     `);
+
+    // Migration: add columns that may be missing from pre-existing databases
+    this._runMigrations();
 
     // Individual backup files
     this.db.exec(`
