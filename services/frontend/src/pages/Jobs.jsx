@@ -72,7 +72,7 @@ function JobRow({ job, onUpdate }) {
                 if (e.key === 'Escape') { setScheduleInput(job.schedule); setEditingSchedule(false); }
               }}
               autoFocus
-              style={{ width: 140 }}
+              className="inline-edit-input"
             />
             <button onClick={saveSchedule} disabled={saving} className="btn btn-primary btn-sm" style={{ padding: '2px 6px' }}>
               <Check size={11} />
@@ -103,14 +103,14 @@ function JobRow({ job, onUpdate }) {
       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{lastRunLabel(job.last_run_at)}</td>
       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextRunLabel(job.next_run_at)}</td>
       <td>
-        <label className="toggle" title={job.enabled ? 'Disable' : 'Enable'}>
+        <label className="toggle-container" title={job.enabled ? 'Disable' : 'Enable'}>
           <input
             type="checkbox"
             checked={!!job.enabled}
             onChange={toggleEnabled}
             disabled={saving}
           />
-          <span className="toggle-track" />
+          <span className="toggle-switch" />
         </label>
       </td>
     </tr>

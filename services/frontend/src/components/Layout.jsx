@@ -7,16 +7,24 @@ import {
   Clock,
   ScrollText,
   LogOut,
+  BookOpen,
+  Info,
+  Terminal,
 } from 'lucide-react';
 import api from '../api';
 
-const navItems = [
+const mainNavItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/services', label: 'Infrastructure', icon: Server },
   { path: '/managed', label: 'Managed Services', icon: HardDrive },
   { path: '/backups', label: 'Backups', icon: Database },
   { path: '/jobs', label: 'Jobs', icon: Clock },
   { path: '/audit', label: 'Audit Log', icon: ScrollText },
+];
+
+const footerNavItems = [
+  { path: '/docs', label: 'Docs', icon: BookOpen },
+  { path: '/about', label: 'About', icon: Info },
 ];
 
 export default function Layout({ children, onLogout }) {
@@ -34,33 +42,48 @@ export default function Layout({ children, onLogout }) {
     }
   }
 
-  const activeItem = navItems.find((item) => item.path === location.pathname);
+  const allNavItems = [...mainNavItems, ...footerNavItems];
+  const activeItem = allNavItems.find((item) => item.path === location.pathname);
 
   return (
     <div className="app-layout">
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="sidebar-logo">RM</div>
-          <span className="sidebar-name">Railway Manage</span>
+          <Terminal size={16} className="brand-mark" />
+          railway-manage
         </div>
 
-        <nav className="sidebar-nav">
-          {navItems.map(({ path, label, icon: Icon }) => (
+        <div className="sidebar-section-label">Navigation</div>
+
+        <nav>
+          {mainNavItems.map(({ path, label, icon: Icon }) => (
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`sidebar-nav-item${location.pathname === path ? ' active' : ''}`}
+              className={`nav-link${location.pathname === path ? ' active' : ''}`}
             >
-              <Icon size={15} />
+              <Icon size={14} />
               {label}
             </button>
           ))}
         </nav>
 
+        <div className="sidebar-spacer" />
+
         <div className="sidebar-footer">
-          <button onClick={handleLogout} className="sidebar-nav-item" style={{ color: 'var(--danger)' }}>
-            <LogOut size={15} />
+          {footerNavItems.map(({ path, label, icon: Icon }) => (
+            <button
+              key={path}
+              onClick={() => navigate(path)}
+              className={`nav-link${location.pathname === path ? ' active' : ''}`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+          <button onClick={handleLogout} className="nav-link danger">
+            <LogOut size={14} />
             Sign Out
           </button>
         </div>
@@ -69,25 +92,8 @@ export default function Layout({ children, onLogout }) {
       {/* Main */}
       <div className="main-content">
         <header className="page-header">
-          <span className="page-title">
-            {activeItem?.label ?? 'Dashboard'}
-          </span>
-          <div
-            style={{
-              width: 26,
-              height: 26,
-              background: 'var(--accent)',
-              borderRadius: 'var(--radius-sm)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#fff',
-            }}
-          >
-            A
+          <div className="page-header-left">
+            <h1>{activeItem?.label ?? 'Dashboard'}</h1>
           </div>
         </header>
 

@@ -97,13 +97,13 @@ export default function Services() {
             <div className="modal-header">
               <span className="modal-title">Confirm Restart</span>
             </div>
-            <div className="modal-body">
+            <div style={{ padding: '8px 0 16px' }}>
               <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                 Restart <strong style={{ color: 'var(--text-primary)' }}>{confirmRestart.name}</strong>?
                 This triggers a new deployment.
               </p>
             </div>
-            <div className="modal-footer">
+            <div className="modal-actions">
               <button onClick={() => setConfirmRestart(null)} className="btn btn-ghost">Cancel</button>
               <button onClick={() => handleRestart(confirmRestart)} className="btn btn-primary">
                 <RotateCcw size={12} /> Restart

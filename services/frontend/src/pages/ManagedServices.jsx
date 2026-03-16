@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import CustomSelect from '../components/CustomSelect';
 import api from '../api';
 import { useToast } from '../components/Toast';
 
@@ -178,20 +179,20 @@ export default function ManagedServices() {
                   <tr key={svc.id}>
                     <td className="primary">{svc.name}</td>
                     <td>
-                      <span className="badge badge-accent">{svc.type}</span>
+                      <span className="badge badge-neutral">{svc.type}</span>
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>
                       {rSvc?.name ?? svc.railway_service_id.slice(0, 14) + '…'}
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>{svc.env_var_key}</td>
                     <td>
-                      <label className="toggle" title={svc.enabled ? 'Disable' : 'Enable'}>
+                      <label className="toggle-container" title={svc.enabled ? 'Disable' : 'Enable'}>
                         <input
                           type="checkbox"
                           checked={!!svc.enabled}
                           onChange={() => toggleEnabled(svc)}
                         />
-                        <span className="toggle-track" />
+                        <span className="toggle-switch" />
                       </label>
                     </td>
                     <td>
@@ -218,45 +219,32 @@ export default function ManagedServices() {
           <div className="modal-box">
             <div className="modal-header">
               <span className="modal-title">Add Managed Service</span>
-              <button onClick={closeModal} className="btn btn-ghost btn-sm" style={{ padding: '3px 7px' }}>
+              <button onClick={closeModal} className="modal-close">
                 <X size={14} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="modal-body">
+              <div style={{ marginBottom: 4 }}>
                 {/* Step 1: Pick Railway service */}
                 <div className="form-group">
                   <label className="form-label">Railway Service</label>
-                  <select
-                    className="form-control"
+                  <CustomSelect
+                    options={railwayServices.map((s) => ({ value: s.id, label: s.name }))}
                     value={form.railway_service_id}
-                    onChange={(e) => onRailwayServiceChange(e.target.value)}
-                    required
-                  >
-                    <option value="">— Select a service —</option>
-                    {railwayServices.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => onRailwayServiceChange(v)}
+                    placeholder="— Select a service —"
+                  />
                 </div>
 
                 {/* Step 2: Service type */}
                 <div className="form-group">
                   <label className="form-label">Database Type</label>
-                  <select
-                    className="form-control"
+                  <CustomSelect
+                    options={SERVICE_TYPES.map((t) => ({ value: t, label: t }))}
                     value={form.type}
-                    onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                  >
-                    {SERVICE_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setForm((f) => ({ ...f, type: v }))}
+                  />
                 </div>
 
                 {/* Step 3: Env var key picker */}
@@ -270,19 +258,12 @@ export default function ManagedServices() {
                     )}
                   </label>
                   {varKeys.length > 0 ? (
-                    <select
-                      className="form-control"
+                    <CustomSelect
+                      options={varKeys.map((k) => ({ value: k, label: k }))}
                       value={form.env_var_key}
-                      onChange={(e) => setForm((f) => ({ ...f, env_var_key: e.target.value }))}
-                      required
-                    >
-                      <option value="">— Pick the env var —</option>
-                      {varKeys.map((k) => (
-                        <option key={k} value={k}>
-                          {k}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setForm((f) => ({ ...f, env_var_key: v }))}
+                      placeholder="— Pick the env var —"
+                    />
                   ) : (
                     <input
                       className="form-control"
@@ -316,7 +297,7 @@ export default function ManagedServices() {
                 </div>
               </div>
 
-              <div className="modal-footer">
+              <div className="modal-actions">
                 <button type="button" onClick={closeModal} className="btn btn-ghost">
                   Cancel
                 </button>
@@ -340,13 +321,13 @@ export default function ManagedServices() {
             <div className="modal-header">
               <span className="modal-title">Confirm Delete</span>
             </div>
-            <div className="modal-body">
+            <div style={{ padding: '8px 0 16px' }}>
               <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                 Remove <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.name}</strong> from managed services?
                 Existing backups are not deleted.
               </p>
             </div>
-            <div className="modal-footer">
+            <div className="modal-actions">
               <button onClick={() => setConfirmDelete(null)} className="btn btn-ghost">Cancel</button>
               <button onClick={() => handleDelete(confirmDelete.id)} className="btn btn-danger">
                 Delete

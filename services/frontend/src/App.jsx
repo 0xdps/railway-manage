@@ -10,6 +10,8 @@ import ManagedServices from './pages/ManagedServices';
 import Backups from './pages/Backups';
 import Jobs from './pages/Jobs';
 import Audit from './pages/Audit';
+import Docs from './pages/Docs';
+import About from './pages/About';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
@@ -53,6 +55,8 @@ function App() {
               <Route path="/backups" element={<Backups />} />
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/audit" element={<Audit />} />
+              <Route path="/docs" element={<Docs />} />
+              <Route path="/about" element={<About />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Layout>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Play } from 'lucide-react';
+import { RefreshCw, Play, X } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../components/Toast';
+import CustomSelect from '../components/CustomSelect';
 
 const SCHEDULES = ['hourly', 'daily', 'weekly', 'monthly'];
 
@@ -108,7 +109,7 @@ export default function Backups() {
                   <tr key={b.id}>
                     <td className="mono" style={{ fontSize: 11 }}>{b.service_id}</td>
                     <td>
-                      <span className="badge badge-accent">{b.schedule}</span>
+                      <span className="badge badge-neutral">{b.schedule}</span>
                     </td>
                     <td>
                       <span
@@ -137,39 +138,33 @@ export default function Backups() {
       {/* Trigger modal */}
       {triggerModal && (
         <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setTriggerModal(false)}>
-          <div className="modal-box" style={{ maxWidth: 400 }}>
+          <div className="modal-box">
             <div className="modal-header">
               <span className="modal-title">Trigger Backup</span>
-              <button onClick={() => setTriggerModal(false)} className="btn btn-ghost btn-sm" style={{ padding: '3px 7px' }}>×</button>
+              <button onClick={() => setTriggerModal(false)} className="modal-close"><X size={14} /></button>
             </div>
             <form onSubmit={handleTrigger}>
-              <div className="modal-body">
+              <div style={{ marginBottom: 4 }}>
                 <div className="form-group">
                   <label className="form-label">Service</label>
-                  <select
-                    className="form-control"
+                  <CustomSelect
+                    options={managedServices.map((s) => ({ value: s.id, label: s.name }))}
                     value={triggerForm.serviceId}
-                    onChange={(e) => setTriggerForm((f) => ({ ...f, serviceId: e.target.value }))}
-                    required
-                  >
-                    <option value="">— Select service —</option>
-                    {managedServices.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setTriggerForm((f) => ({ ...f, serviceId: v }))}
+                    placeholder="— Select service —"
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Schedule Type</label>
-                  <select
-                    className="form-control"
+                  <CustomSelect
+                    options={SCHEDULES.map((s) => ({ value: s, label: s }))}
                     value={triggerForm.schedule}
-                    onChange={(e) => setTriggerForm((f) => ({ ...f, schedule: e.target.value }))}
-                  >
-                    {SCHEDULES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                    onChange={(v) => setTriggerForm((f) => ({ ...f, schedule: v }))}
+                    placeholder="Select schedule"
+                  />
                 </div>
               </div>
-              <div className="modal-footer">
+              <div className="modal-actions">
                 <button type="button" onClick={() => setTriggerModal(false)} className="btn btn-ghost">Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={triggering}>
                   <Play size={12} />
