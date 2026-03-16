@@ -163,6 +163,9 @@ export async function registerManagedServiceRoutes(server) {
           return reply.status(404).send({ error: 'Service not found' });
         }
 
+        // Remove dependent rows to satisfy FK constraints before deleting the service
+        db.run('DELETE FROM restores WHERE backup_id IN (SELECT id FROM backups WHERE service_id = ?)', [id]);
+        db.run('DELETE FROM backups WHERE service_id = ?', [id]);
         db.run('DELETE FROM services WHERE id = ?', [id]);
 
         db.run(

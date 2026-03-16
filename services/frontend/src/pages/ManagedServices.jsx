@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, RefreshCw, Trash2, Edit2, X, ExternalLink } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import MathCaptcha from '../components/MathCaptcha';
 import api from '../api';
@@ -16,16 +17,19 @@ const DEFAULT_FORM = {
 };
 
 export default function ManagedServices() {
-  const toast = useToast();
-  const [services, setServices] = useState([]);
+  const toast    = useToast();
+  const navigate = useNavigate();
+  const [services, setServices]               = useState([]);
   const [railwayServices, setRailwayServices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(DEFAULT_FORM);
-  const [varKeys, setVarKeys] = useState([]);
-  const [loadingVars, setLoadingVars] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [restartPolicies, setRestartPolicies] = useState([]);
+  const [loading, setLoading]                 = useState(true);
+  const [modalOpen, setModalOpen]             = useState(false);
+  const [editingRecord, setEditingRecord]     = useState(null);
+  const [form, setForm]                       = useState(DEFAULT_FORM);
+  const [varKeys, setVarKeys]                 = useState([]);
+  const [loadingVars, setLoadingVars]         = useState(false);
+  const [saving, setSaving]                   = useState(false);
+  const [confirmDelete, setConfirmDelete]     = useState(null);
   const [deleteCaptchaOk, setDeleteCaptchaOk] = useState(false);
 
   useEffect(() => {
@@ -35,12 +39,14 @@ export default function ManagedServices() {
   async function load() {
     setLoading(true);
     try {
-      const [managedRes, svcRes] = await Promise.all([
+      const [managedRes, svcRes, policiesRes] = await Promise.all([
         api.getManagedServices(),
         api.getServices(),
+        api.getAllRestartPolicies(),
       ]);
       setServices(managedRes.services || []);
       setRailwayServices(svcRes.services || []);
+      setRestartPolicies(policiesRes.policies || []);
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -48,47 +54,57 @@ export default function ManagedServices() {
     }
   }
 
-  function openModal() {
+  function openAddModal() {
+    setEditingRecord(null);
     setForm(DEFAULT_FORM);
     setVarKeys([]);
     setModalOpen(true);
   }
 
+  function openEditModal(svc) {
+    setEditingRecord(svc);
+    setForm({ name: svc.name, type: svc.type, railway_service_id: svc.railway_service_id, env_var_key: svc.env_var_key });
+    setVarKeys([]);
+    setModalOpen(true);
+    loadVarKeys(svc.railway_service_id);
+  }
+
   function closeModal() {
     setModalOpen(false);
+    setEditingRecord(null);
     setVarKeys([]);
   }
 
-  async function onRailwayServiceChange(railwayServiceId) {
-    setForm((f) => ({ ...f, railway_service_id: railwayServiceId, env_var_key: '' }));
-    if (!railwayServiceId) { setVarKeys([]); return; }
-
-    // Auto-fill name from the selected Railway service
-    const rSvc = railwayServices.find((s) => s.id === railwayServiceId);
-    if (rSvc) setForm((f) => ({ ...f, name: rSvc.name, railway_service_id: railwayServiceId, env_var_key: '' }));
-
+  async function loadVarKeys(railwayServiceId) {
+    if (!railwayServiceId) return;
     setLoadingVars(true);
-    setVarKeys([]);
     try {
       const res = await api.getServiceVariableKeys(railwayServiceId);
       setVarKeys(res.keys || []);
-    } catch (err) {
-      toast(`Could not load variables: ${err.message}`, 'error');
-    } finally {
-      setLoadingVars(false);
-    }
+    } catch { /* silently ignore */ }
+    finally { setLoadingVars(false); }
+  }
+
+  async function onRailwayServiceChange(railwayServiceId) {
+    const rSvc = railwayServices.find((s) => s.id === railwayServiceId);
+    setForm((f) => ({ ...f, railway_service_id: railwayServiceId, name: rSvc?.name ?? f.name, env_var_key: '' }));
+    setVarKeys([]);
+    if (railwayServiceId) await loadVarKeys(railwayServiceId);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.railway_service_id || !form.env_var_key) {
-      toast('Select a Railway service and env var key', 'error');
-      return;
-    }
+    if (!form.env_var_key) { toast('Select or enter the connection string variable', 'error'); return; }
     setSaving(true);
     try {
-      await api.createManagedService(form);
-      toast(`Service "${form.name}" added`, 'success');
+      if (editingRecord) {
+        await api.updateManagedService(editingRecord.id, { name: form.name, type: form.type, env_var_key: form.env_var_key });
+        toast(`Updated "${form.name}"`, 'success');
+      } else {
+        if (!form.railway_service_id) { toast('Select a Railway service', 'error'); return; }
+        await api.createManagedService(form);
+        toast(`Backup configured for "${form.name}"`, 'success');
+      }
       closeModal();
       load();
     } catch (err) {
@@ -113,11 +129,12 @@ export default function ManagedServices() {
     try {
       await api.deleteManagedService(id);
       setServices((prev) => prev.filter((s) => s.id !== id));
-      toast('Service removed', 'success');
+      toast('Backup config removed', 'success');
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       setConfirmDelete(null);
+      setDeleteCaptchaOk(false);
     }
   }
 
@@ -130,175 +147,222 @@ export default function ManagedServices() {
             <RefreshCw size={13} />
             Refresh
           </button>
-          <button onClick={openModal} className="btn btn-primary">
+          <button onClick={openAddModal} className="btn btn-primary">
             <Plus size={13} />
-            Add Service
+            Add Backup Config
           </button>
         </>,
-        topbar
+        topbar,
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Table */}
-      <div className="panel">
-        {loading ? (
-          <div className="empty-state">Loading…</div>
-        ) : services.length === 0 ? (
-          <div className="empty-state">
-            No managed services yet.{' '}
-            <button
-              onClick={openModal}
-              style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}
-            >
-              Add one →
-            </button>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* \u2500\u2500\u2500 Table 1: Backup Configs \u2500\u2500\u2500 */}
+        <div className="panel">
+          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Backup Configs</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{services.length} {services.length === 1 ? 'entry' : 'entries'}</span>
           </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: '28%' }}>Name</th>
-                <th style={{ width: '12%' }}>Type</th>
-                <th style={{ width: '28%' }}>Railway Service</th>
-                <th style={{ width: '18%' }}>Env Var Key</th>
-                <th style={{ width: '8%' }}>Status</th>
-                <th style={{ width: '6%' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map((svc) => {
-                const rSvc = railwayServices.find((r) => r.id === svc.railway_service_id);
-                return (
-                  <tr key={svc.id}>
-                    <td className="primary">{svc.name}</td>
-                    <td>
-                      <span className="badge badge-neutral">{svc.type}</span>
-                    </td>
-                    <td className="mono" style={{ fontSize: 11 }}>
-                      {rSvc?.name ?? svc.railway_service_id.slice(0, 14) + '…'}
-                    </td>
-                    <td className="mono" style={{ fontSize: 11 }}>{svc.env_var_key}</td>
-                    <td>
-                      <label className="toggle-container" title={svc.enabled ? 'Disable' : 'Enable'}>
-                        <input
-                          type="checkbox"
-                          checked={!!svc.enabled}
-                          onChange={() => toggleEnabled(svc)}
-                        />
-                        <span className="toggle-switch" />
-                      </label>
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => setConfirmDelete(svc)}
-                        className="btn btn-danger btn-sm"
-                        style={{ padding: '3px 7px' }}
-                        title="Delete"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+          {loading ? (
+            <div className="empty-state">Loading\u2026</div>
+          ) : services.length === 0 ? (
+            <div className="empty-state">
+              No backup configs yet.{' '}
+              <button onClick={openAddModal} style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}>
+                Add one \u2192
+              </button>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '24%' }}>Display Name</th>
+                  <th style={{ width: '10%' }}>Type</th>
+                  <th style={{ width: '26%' }}>Railway Service</th>
+                  <th style={{ width: '22%' }}>Env Var</th>
+                  <th style={{ width: '8%' }}>Active</th>
+                  <th style={{ width: '10%' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((svc) => {
+                  const rSvc = railwayServices.find((r) => r.id === svc.railway_service_id);
+                  return (
+                    <tr key={svc.id}>
+                      <td className="primary">{svc.name}</td>
+                      <td><span className="badge badge-neutral">{svc.type}</span></td>
+                      <td className="mono" style={{ fontSize: 11 }}>
+                        {rSvc?.name ?? svc.railway_service_id.slice(0, 14) + '\u2026'}
+                      </td>
+                      <td className="mono" style={{ fontSize: 11 }}>{svc.env_var_key}</td>
+                      <td>
+                        <label className="toggle-container" title={svc.enabled ? 'Disable' : 'Enable'}>
+                          <input type="checkbox" checked={!!svc.enabled} onChange={() => toggleEnabled(svc)} />
+                          <span className="toggle-switch" />
+                        </label>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button onClick={() => openEditModal(svc)} className="btn btn-ghost btn-sm" style={{ padding: '3px 7px' }} title="Edit">
+                            <Edit2 size={12} />
+                          </button>
+                          <button onClick={() => setConfirmDelete(svc)} className="btn btn-danger btn-sm" style={{ padding: '3px 7px' }} title="Delete">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* \u2500\u2500\u2500 Table 2: Restart Policies \u2500\u2500\u2500 */}
+        <div className="panel">
+          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Restart Policies</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{restartPolicies.length} {restartPolicies.length === 1 ? 'entry' : 'entries'}</span>
+          </div>
+          {loading ? (
+            <div className="empty-state">Loading\u2026</div>
+          ) : restartPolicies.length === 0 ? (
+            <div className="empty-state">
+              No restart policies configured.{' '}
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Open a service to configure one.</span>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '24%' }}>Service</th>
+                  <th style={{ width: '13%' }}>CPU Limit</th>
+                  <th style={{ width: '14%' }}>Memory Limit</th>
+                  <th style={{ width: '12%' }}>Window</th>
+                  <th style={{ width: '12%' }}>Ratio</th>
+                  <th style={{ width: '10%' }}>Active</th>
+                  <th style={{ width: '15%' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {restartPolicies.map((p) => {
+                  const rSvc = railwayServices.find((r) => r.id === p.service_id);
+                  return (
+                    <tr key={p.service_id}>
+                      <td className="primary">
+                        {rSvc?.name ?? <span className="mono" style={{ fontSize: 11 }}>{p.service_id.slice(0, 14)}\u2026</span>}
+                      </td>
+                      <td>
+                        {p.cpu_threshold != null
+                          ? <span className="badge badge-neutral">{Math.round(p.cpu_threshold * 100)}%</span>
+                          : <span style={{ color: 'var(--text-muted)' }}>\u2014</span>}
+                      </td>
+                      <td>
+                        {p.mem_threshold_gb != null
+                          ? <span className="badge badge-neutral">{p.mem_threshold_gb} GB</span>
+                          : <span style={{ color: 'var(--text-muted)' }}>\u2014</span>}
+                      </td>
+                      <td><span className="badge badge-neutral">{p.window_minutes}m</span></td>
+                      <td><span className="badge badge-neutral">{Math.round(p.violation_ratio * 100)}%</span></td>
+                      <td>
+                        <span className={`badge ${p.enabled ? 'badge-success' : 'badge-neutral'}`}>
+                          {p.enabled ? 'on' : 'off'}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => navigate(`/services/${p.service_id}`)}
+                          className="btn btn-ghost btn-sm"
+                          style={{ fontSize: 11, padding: '3px 8px' }}
+                        >
+                          <ExternalLink size={11} /> Edit
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
-      {/* Add Service Modal */}
+      {/* \u2500\u2500 Add / Edit Backup Config Modal \u2500\u2500 */}
       {modalOpen && (
         <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && closeModal()}>
           <div className="modal-box">
             <div className="modal-header">
-              <span className="modal-title">Add Managed Service</span>
-              <button onClick={closeModal} className="modal-close">
-                <X size={14} />
-              </button>
+              <span className="modal-title">{editingRecord ? 'Edit Backup Config' : 'Add Backup Config'}</span>
+              <button onClick={closeModal} className="modal-close"><X size={14} /></button>
             </div>
-
             <form onSubmit={handleSubmit}>
-              <div style={{ marginBottom: 4 }}>
-                {/* Step 1: Pick Railway service */}
+              {!editingRecord && (
                 <div className="form-group">
                   <label className="form-label">Railway Service</label>
                   <CustomSelect
                     options={railwayServices.map((s) => ({ value: s.id, label: s.name }))}
                     value={form.railway_service_id}
-                    onChange={(v) => onRailwayServiceChange(v)}
-                    placeholder="— Select a service —"
+                    onChange={onRailwayServiceChange}
+                    placeholder="\u2014 Select a service \u2014"
                   />
                 </div>
-
-                {/* Step 2: Service type */}
-                <div className="form-group">
-                  <label className="form-label">Database Type</label>
+              )}
+              <div className="form-group">
+                <label className="form-label">Database Type</label>
+                <CustomSelect
+                  options={SERVICE_TYPES.map((t) => ({ value: t, label: t }))}
+                  value={form.type}
+                  onChange={(v) => setForm((f) => ({ ...f, type: v }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Connection String Variable
+                  {loadingVars && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-muted)' }}>loading\u2026</span>}
+                </label>
+                {varKeys.length > 0 ? (
                   <CustomSelect
-                    options={SERVICE_TYPES.map((t) => ({ value: t, label: t }))}
-                    value={form.type}
-                    onChange={(v) => setForm((f) => ({ ...f, type: v }))}
+                    options={varKeys.map((k) => ({ value: k, label: k }))}
+                    value={form.env_var_key}
+                    onChange={(v) => setForm((f) => ({ ...f, env_var_key: v }))}
+                    placeholder="\u2014 Pick the env var \u2014"
                   />
-                </div>
-
-                {/* Step 3: Env var key picker */}
-                <div className="form-group">
-                  <label className="form-label">
-                    Connection String Variable
-                    {loadingVars && (
-                      <span style={{ marginLeft: 6, color: 'var(--text-muted)', fontStyle: 'normal', fontSize: 10 }}>
-                        loading…
-                      </span>
-                    )}
-                  </label>
-                  {varKeys.length > 0 ? (
-                    <CustomSelect
-                      options={varKeys.map((k) => ({ value: k, label: k }))}
-                      value={form.env_var_key}
-                      onChange={(v) => setForm((f) => ({ ...f, env_var_key: v }))}
-                      placeholder="— Pick the env var —"
-                    />
-                  ) : (
-                    <input
-                      className="form-control"
-                      placeholder={
-                        form.railway_service_id
-                          ? loadingVars
-                            ? 'Loading variables…'
-                            : 'No variables found — type key name manually'
-                          : 'Select a Railway service first'
-                      }
-                      value={form.env_var_key}
-                      onChange={(e) => setForm((f) => ({ ...f, env_var_key: e.target.value }))}
-                      disabled={!form.railway_service_id || loadingVars}
-                    />
-                  )}
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    Only the variable name is stored. The actual value is fetched from Railway at backup time.
-                  </p>
-                </div>
-
-                {/* Step 4: Display name */}
-                <div className="form-group">
-                  <label className="form-label">Display Name</label>
+                ) : (
                   <input
                     className="form-control"
-                    value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. production-postgres"
-                    required
+                    placeholder={
+                      form.railway_service_id
+                        ? loadingVars ? 'Loading variables\u2026' : 'No variables found \u2014 type key name manually'
+                        : editingRecord ? 'e.g. DATABASE_URL' : 'Select a Railway service first'
+                    }
+                    value={form.env_var_key}
+                    onChange={(e) => setForm((f) => ({ ...f, env_var_key: e.target.value }))}
+                    disabled={!editingRecord && (!form.railway_service_id || loadingVars)}
                   />
-                </div>
+                )}
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Only the variable name is stored. The value is fetched from Railway at backup time.
+                </p>
               </div>
-
+              <div className="form-group">
+                <label className="form-label">Display Name</label>
+                <input
+                  className="form-control"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. production-postgres"
+                  required
+                />
+              </div>
               <div className="modal-actions">
-                <button type="button" onClick={closeModal} className="btn btn-ghost">
-                  Cancel
-                </button>
+                <button type="button" onClick={closeModal} className="btn btn-ghost">Cancel</button>
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={saving || !form.railway_service_id || !form.env_var_key || !form.name}
+                  disabled={saving || !form.env_var_key || !form.name || (!editingRecord && !form.railway_service_id)}
                 >
-                  {saving ? 'Adding…' : 'Add Service'}
+                  {saving ? (editingRecord ? 'Saving\u2026' : 'Adding\u2026') : (editingRecord ? 'Save Changes' : 'Add Config')}
                 </button>
               </div>
             </form>
@@ -306,7 +370,7 @@ export default function ManagedServices() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* \u2500\u2500 Delete Confirmation Modal \u2500\u2500 */}
       {confirmDelete && (
         <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && (setConfirmDelete(null), setDeleteCaptchaOk(false))}>
           <div className="modal-box" style={{ maxWidth: 380 }}>
@@ -315,7 +379,7 @@ export default function ManagedServices() {
             </div>
             <div style={{ padding: '8px 0 12px' }}>
               <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
-                Remove <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.name}</strong> from managed services?
+                Remove <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.name}</strong> from backup configs?
                 Existing backups are not deleted.
               </p>
               <MathCaptcha onVerified={setDeleteCaptchaOk} />
@@ -329,7 +393,6 @@ export default function ManagedServices() {
           </div>
         </div>
       )}
-    </div>
     </>
   );
 }

@@ -3,7 +3,7 @@ import {
   LayoutDashboard,
   Server,
   Database,
-  HardDrive,
+  Settings2,
   Clock,
   ScrollText,
   LogOut,
@@ -15,8 +15,8 @@ import BrandLogo from './BrandLogo';
 
 const mainNavItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/services', label: 'Infrastructure', icon: Server },
-  { path: '/managed', label: 'Managed Services', icon: HardDrive },
+  { path: '/services', label: 'Services', icon: Server },
+  { path: '/managed', label: 'Manage', icon: Settings2 },
   { path: '/backups', label: 'Backups', icon: Database },
   { path: '/jobs', label: 'Jobs', icon: Clock },
   { path: '/audit', label: 'Audit Log', icon: ScrollText },

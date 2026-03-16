@@ -57,7 +57,7 @@ export default function CustomSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`custom-select-value${!displayLabel ? ' placeholder' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span className={`custom-select-value${!displayLabel ? ' placeholder' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: "5rem" }}>
           {SelectedIcon && <SelectedIcon />}
           {displayLabel ?? placeholder}
         </span>

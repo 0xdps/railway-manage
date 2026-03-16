@@ -315,6 +315,24 @@ export async function registerInfrastructureRoutes(server) {
   );
 
   /**
+   * GET /api/restart-policies
+   * Returns all configured restart policies (for the Manage page).
+   */
+  server.get(
+    '/api/restart-policies',
+    { onRequest: authHook },
+    async (_, reply) => {
+      try {
+        const policies = db.all('SELECT * FROM restart_policies ORDER BY updated_at DESC');
+        return reply.send({ policies });
+      } catch (error) {
+        logger.error(error, 'Failed to fetch restart policies');
+        return reply.status(500).send({ error: 'Failed to fetch restart policies' });
+      }
+    }
+  );
+
+  /**
    * GET /api/services/:serviceId/variable?key=VAR_NAME
    * Returns the decrypted value of a single Railway variable (on-demand reveal).
    */

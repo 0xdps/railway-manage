@@ -14,7 +14,7 @@ import api from '../api';
 import { useToast } from '../components/Toast';
 import { TAG_PALETTE } from './Services';
 import MathCaptcha from '../components/MathCaptcha';
-import { detectType, TypeBadge, TYPE_META, DB_TYPES, ALL_TYPES } from '../utils/serviceTypes';
+import { detectType, TYPE_META, DB_TYPES, ALL_TYPES } from '../utils/serviceTypes';
 import CustomSelect from '../components/CustomSelect';
 
 const STATUS_META = {
@@ -574,7 +574,6 @@ export default function ServiceDetail() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'nowrap' }}>
             <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>{svc.name}</h1>
-            <TypeBadge type={type} />
             <span className={`badge ${sm.cls}`}>{sm.label}</span>
             {/* Type override — custom select with icons */}
             <CustomSelect

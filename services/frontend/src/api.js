@@ -2,12 +2,13 @@
  * Fetch wrapper for API calls with automatic error handling.
  */
 async function fetchJson(url, options = {}) {
+  const headers = options.body
+    ? { 'Content-Type': 'application/json', ...options.headers }
+    : { ...options.headers };
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
     credentials: 'include',
   });
 
@@ -125,6 +126,9 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ typeOverride }),
     }),
+
+  // All restart policies (bulk, for Manage page)
+  getAllRestartPolicies: () => fetchJson('/api/restart-policies'),
 };
 
 export default api;
