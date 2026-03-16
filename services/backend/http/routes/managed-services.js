@@ -192,7 +192,8 @@ export async function registerManagedServiceRoutes(server) {
         const { serviceId } = request.params;
         const keys = await railwayClient.getServiceVariableKeys(
           serviceId,
-          config.railwayEnvironmentId
+          config.railwayEnvironmentId,
+          config.railwayProjectId
         );
         return { keys };
       } catch (error) {

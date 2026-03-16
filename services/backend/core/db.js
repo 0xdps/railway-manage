@@ -37,6 +37,11 @@ class DatabaseManager {
     const migrations = [
       `ALTER TABLE services ADD COLUMN railway_service_id TEXT NOT NULL DEFAULT ''`,
       `ALTER TABLE services ADD COLUMN env_var_key TEXT NOT NULL DEFAULT ''`,
+      `CREATE TABLE IF NOT EXISTS service_meta (
+        service_id TEXT PRIMARY KEY,
+        tags       TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL
+      )`,
     ];
     for (const sql of migrations) {
       try {
@@ -113,6 +118,15 @@ class DatabaseManager {
         actor TEXT NOT NULL DEFAULT 'admin',
         target TEXT,
         meta TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    // Service metadata (tags) keyed by Railway service id
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS service_meta (
+        service_id TEXT PRIMARY KEY,
+        tags       TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL
       )
     `);

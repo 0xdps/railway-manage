@@ -6,12 +6,13 @@ import logger from '../../core/logger.js';
 import db from '../../core/db.js';
 
 /**
- * Infrastructure routes: services, metrics, deployments
+ * Infrastructure routes: services, metrics, deployments, tags
  */
 export async function registerInfrastructureRoutes(server) {
   /**
    * GET /api/services
-   * Returns list of services available in the project/environment.
+   * Returns enriched list of services: source, status, domains, volumes,
+   * numReplicas + locally-stored tags.
    */
   server.get(
     '/api/services',
@@ -22,10 +23,61 @@ export async function registerInfrastructureRoutes(server) {
           config.railwayProjectId,
           config.railwayEnvironmentId
         );
-        return { services };
+
+        // Merge in tags from local DB
+        const metaRows = db.all('SELECT service_id, tags FROM service_meta', []);
+        const tagsMap = {};
+        for (const row of metaRows) {
+          try { tagsMap[row.service_id] = JSON.parse(row.tags); } catch { tagsMap[row.service_id] = []; }
+        }
+
+        const enriched = services.map((svc) => ({
+          ...svc,
+          tags: tagsMap[svc.id] || [],
+        }));
+
+        return { services: enriched };
       } catch (error) {
         logger.error(error, 'Failed to fetch services');
         return reply.status(500).send({ error: 'Failed to fetch services' });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/services/:serviceId/tags
+   * Body: { tags: string[] }
+   * Upserts the tag list for a service in local DB.
+   */
+  server.put(
+    '/api/services/:serviceId/tags',
+    { onRequest: authHook },
+    async (request, reply) => {
+      try {
+        const { serviceId } = request.params;
+        const { tags } = request.body;
+
+        if (!Array.isArray(tags)) {
+          return reply.status(400).send({ error: 'tags must be an array' });
+        }
+
+        // Sanitise: lowercase, alphanumeric + hyphen only, max 24 chars
+        const clean = tags
+          .map((t) => String(t).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24))
+          .filter(Boolean)
+          .slice(0, 10);
+
+        db.run(
+          `INSERT INTO service_meta (service_id, tags, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(service_id) DO UPDATE SET tags = excluded.tags`,
+          [serviceId, JSON.stringify(clean), Math.floor(Date.now() / 1000)]
+        );
+
+        return { tags: clean };
+      } catch (error) {
+        logger.error(error, 'Failed to update service tags');
+        return reply.status(500).send({ error: 'Failed to update tags' });
       }
     }
   );

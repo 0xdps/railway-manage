@@ -206,7 +206,8 @@ class BackupScheduler {
       const connString = await railwayClient.getServiceVariable(
         service.railway_service_id,
         service.env_var_key,
-        config.railwayEnvironmentId
+        config.railwayEnvironmentId,
+        config.railwayProjectId
       );
 
       // Dispatch to appropriate worker

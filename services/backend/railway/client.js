@@ -49,11 +49,12 @@ class RailwayClient {
   }
 
   /**
-   * Get services deployed in the environment.
+   * Get services deployed in the environment — enriched with source, deployment
+   * status, domains, volumes, and replica count.
    */
   async getServices(projectId, environmentId) {
     const query = `
-      query GetServices($projectId: String!) {
+      query GetServicesEnriched($projectId: String!) {
         project(id: $projectId) {
           services {
             edges {
@@ -64,6 +65,45 @@ class RailwayClient {
                   edges {
                     node {
                       environmentId
+                      id
+                      source {
+                        image
+                        repo
+                      }
+                      latestDeployment {
+                        id
+                        status
+                        createdAt
+                        updatedAt
+                      }
+                      domains {
+                        serviceDomains {
+                          domain
+                        }
+                        customDomains {
+                          domain
+                        }
+                      }
+                      numReplicas
+                      upstreamUrl
+                    }
+                  }
+                }
+              }
+            }
+          }
+          volumes {
+            edges {
+              node {
+                id
+                name
+                volumeInstances {
+                  edges {
+                    node {
+                      environmentId
+                      serviceId
+                      mountPath
+                      sizeMB
                     }
                   }
                 }
@@ -77,15 +117,52 @@ class RailwayClient {
     const data = await this.request(query, { projectId });
     const services = [];
 
+    // Build volume map: serviceId → [{id, name, mountPath, sizeMB}]
+    const volumeMap = {};
+    for (const volEdge of data.project?.volumes?.edges || []) {
+      const vol = volEdge.node;
+      for (const instEdge of vol.volumeInstances?.edges || []) {
+        const inst = instEdge.node;
+        if (inst.environmentId === environmentId) {
+          if (!volumeMap[inst.serviceId]) volumeMap[inst.serviceId] = [];
+          volumeMap[inst.serviceId].push({
+            id: vol.id,
+            name: vol.name,
+            mountPath: inst.mountPath,
+            sizeMB: inst.sizeMB,
+          });
+        }
+      }
+    }
+
     for (const edge of data.project?.services?.edges || []) {
       const node = edge.node;
-      const inEnv = node.serviceInstances?.edges?.some(
-        (instEdge) => instEdge.node?.environmentId === environmentId
-      );
+      const instance = node.serviceInstances?.edges?.find(
+        (e) => e.node?.environmentId === environmentId
+      )?.node;
 
-      if (inEnv) {
-        services.push({ id: node.id, name: node.name });
-      }
+      if (!instance) continue;
+
+      const src = instance.source || node.source || {};
+      const domains = [
+        ...(instance.domains?.serviceDomains || []).map((d) => d.domain),
+        ...(instance.domains?.customDomains  || []).map((d) => d.domain),
+      ].filter(Boolean);
+
+      services.push({
+        id: node.id,
+        name: node.name,
+        source: {
+          image: src.image || null,
+          repo:  src.repo  || null,
+        },
+        status:     instance.latestDeployment?.status    || null,
+        deployedAt: instance.latestDeployment?.createdAt || null,
+        domains,
+        volumes:     volumeMap[node.id] || [],
+        numReplicas: instance.numReplicas  || 1,
+        upstreamUrl: instance.upstreamUrl  || null,
+      });
     }
 
     return services;
@@ -95,25 +172,10 @@ class RailwayClient {
    * Get service metrics (CPU, memory) for an environment.
    */
   async getServiceMetrics(serviceId, environmentId) {
-    const query = `
-      query GetServiceMetrics($serviceId: String!, $environmentId: String!) {
-        serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
-          id
-          status
-          currentStatus {
-            cpu
-            memory
-          }
-        }
-      }
-    `;
-
-    const data = await this.request(query, { 
-      serviceId, 
-      environmentId 
-    });
-
-    return data.serviceInstance || {};
+    // Railway's public GraphQL v2 API does not expose real-time CPU/memory
+    // metrics on ServiceInstance. Return an empty object so callers receive
+    // { currentStatus: null } and render "Not available" gracefully.
+    return {};
   }
 
   /**
@@ -175,13 +237,13 @@ class RailwayClient {
    * Get all variable key names for a service in an environment.
    * Returns only the keys (names) — values are never sent to the client.
    */
-  async getServiceVariableKeys(serviceId, environmentId) {
+  async getServiceVariableKeys(serviceId, environmentId, projectId) {
     const query = `
-      query GetServiceVariables($serviceId: String!, $environmentId: String!) {
-        variables(serviceId: $serviceId, environmentId: $environmentId)
+      query GetServiceVariables($serviceId: String!, $environmentId: String!, $projectId: String!) {
+        variables(serviceId: $serviceId, environmentId: $environmentId, projectId: $projectId)
       }
     `;
-    const data = await this.request(query, { serviceId, environmentId });
+    const data = await this.request(query, { serviceId, environmentId, projectId });
     return Object.keys(data.variables || {});
   }
 
@@ -189,13 +251,13 @@ class RailwayClient {
    * Fetch the value of a single variable at backup time.
    * Called server-side only — value is never exposed to the frontend.
    */
-  async getServiceVariable(serviceId, envVarKey, environmentId) {
+  async getServiceVariable(serviceId, envVarKey, environmentId, projectId) {
     const query = `
-      query GetServiceVariables($serviceId: String!, $environmentId: String!) {
-        variables(serviceId: $serviceId, environmentId: $environmentId)
+      query GetServiceVariables($serviceId: String!, $environmentId: String!, $projectId: String!) {
+        variables(serviceId: $serviceId, environmentId: $environmentId, projectId: $projectId)
       }
     `;
-    const data = await this.request(query, { serviceId, environmentId });
+    const data = await this.request(query, { serviceId, environmentId, projectId });
     const value = (data.variables || {})[envVarKey];
     if (!value) {
       throw new Error(

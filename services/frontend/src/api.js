@@ -89,6 +89,12 @@ export const api = {
 
   getServiceVariableKeys: (serviceId) =>
     fetchJson(`/api/services/${serviceId}/variable-keys`),
+
+  updateServiceTags: (serviceId, tags) =>
+    fetchJson(`/api/services/${serviceId}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify({ tags }),
+    }),
 };
 
 export default api;
