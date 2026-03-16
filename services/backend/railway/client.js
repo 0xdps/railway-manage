@@ -169,25 +169,63 @@ class RailwayClient {
   }
 
   /**
-   * Get service metrics (CPU, memory) for an environment.
+   * Get the latest CPU and memory snapshot for a service by querying the
+   * Railway metrics time-series API (last 10 minutes, 60-second resolution).
+   * Returns { cpu: number|null, memoryGB: number|null }.
    */
-  async getServiceMetrics(serviceId, environmentId) {
-    // Railway's public GraphQL v2 API does not expose real-time CPU/memory
-    // metrics on ServiceInstance. Return an empty object so callers receive
-    // { currentStatus: null } and render "Not available" gracefully.
-    return {};
+  async getServiceMetrics(serviceId) {
+    const start = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
+
+    // Railway's metrics API expects measurements as [MetricMeasurement!]!
+    const cpuQuery = `
+      query GetCpuMetrics(
+        $projectId: String!, $serviceId: String!, $startDate: DateTime!, $measurements: [MetricMeasurement!]!
+      ) {
+        metrics(
+          projectId: $projectId
+          serviceId: $serviceId
+          startDate: $startDate
+          measurements: $measurements
+        ) {
+          values { ts value }
+        }
+      }
+    `;
+
+    const commonVars = {
+      projectId:  config.railwayProjectId,
+      serviceId,
+      startDate:  start,
+    };
+
+    const [cpuData, memData] = await Promise.all([
+      this.request(cpuQuery, { ...commonVars, measurements: ['CPU_USAGE'] }),
+      this.request(cpuQuery, { ...commonVars, measurements: ['MEMORY_USAGE_GB'] }),
+    ]);
+
+    const latestValue = (series) => {
+      const values = series?.metrics?.[0]?.values ?? [];
+      const nonNull = values.filter((v) => v.value != null);
+      if (!nonNull.length) return null;
+      // ts is a unix timestamp (seconds) — pick the largest
+      return nonNull.reduce((a, b) => (b.ts > a.ts ? b : a)).value;
+    };
+
+    return {
+      cpu:      latestValue(cpuData),
+      memoryGB: latestValue(memData),
+    };
   }
 
   /**
    * Get latest deployments for a service.
    */
-  async getDeployments(serviceId, environmentId, limit = 10) {
+  async getDeployments(serviceId, limit = 10) {
     const query = `
-      query GetDeployments($serviceId: String!, $environmentId: String!, $limit: Int!) {
+      query GetDeployments($serviceId: String!, $limit: Int!) {
         deployments(
-          serviceId: $serviceId
-          environmentId: $environmentId
-          first: $limit
+          input: { serviceId: $serviceId }
+          last: $limit
         ) {
           edges {
             node {
@@ -195,19 +233,17 @@ class RailwayClient {
               status
               createdAt
               updatedAt
+              statusUpdatedAt
+              url
+              meta
             }
           }
         }
       }
     `;
 
-    const data = await this.request(query, {
-      serviceId,
-      environmentId,
-      limit,
-    });
-
-    return (data.deployments?.edges || []).map((edge) => edge.node);
+    const data = await this.request(query, { serviceId, limit });
+    return (data.deployments?.edges || []).map((e) => e.node);
   }
 
   /**

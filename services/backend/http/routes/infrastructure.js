@@ -92,10 +92,7 @@ export async function registerInfrastructureRoutes(server) {
     async (request, reply) => {
       try {
         const { serviceId } = request.params;
-        const metrics = await railwayClient.getServiceMetrics(
-          serviceId,
-          config.railwayEnvironmentId
-        );
+        const metrics = await railwayClient.getServiceMetrics(serviceId);
         return { metrics };
       } catch (error) {
         logger.error(error, 'Failed to fetch metrics');
@@ -114,10 +111,7 @@ export async function registerInfrastructureRoutes(server) {
     async (request, reply) => {
       try {
         const { serviceId } = request.params;
-        const deployments = await railwayClient.getDeployments(
-          serviceId,
-          config.railwayEnvironmentId
-        );
+        const deployments = await railwayClient.getDeployments(serviceId);
         return { deployments };
       } catch (error) {
         logger.error(error, 'Failed to fetch deployments');

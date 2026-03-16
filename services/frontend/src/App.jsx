@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Services from './pages/Services';
+import ServiceDetail from './pages/ServiceDetail';
 import ManagedServices from './pages/ManagedServices';
 import Backups from './pages/Backups';
 import Jobs from './pages/Jobs';
@@ -51,6 +52,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/services" element={<Services />} />
+              <Route path="/services/:serviceId" element={<ServiceDetail />} />
               <Route path="/managed" element={<ManagedServices />} />
               <Route path="/backups" element={<Backups />} />
               <Route path="/jobs" element={<Jobs />} />
