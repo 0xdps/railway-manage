@@ -1,0 +1,114 @@
+services/frontend/src/components/BrandLogo.jsx
+  4e84e66c15ac1ecf 1,4-14,16,19-21,24-33
+services/frontend/index.html
+  aea15efac5a234d5 7-9
+services/frontend/src/pages/Login.jsx
+  aea15efac5a234d5 3,29
+services/frontend/src/utils/serviceTypes.jsx
+  aea15efac5a234d5 1-96
+services/backend/backup/retention.js
+  f9d25104ba785652 31,45
+services/backend/core/db.js
+  f9d25104ba785652 45-69
+services/backend/railway/client.js
+  f9d25104ba785652 69,156,223-225,227-256,339-351
+services/frontend/public/logo.svg
+  4e84e66c15ac1ecf 1-21
+services/frontend/src/components/CustomSelect.jsx
+  f9d25104ba785652 5,8,48,60-61,74-76,78,85-86,88-89
+services/frontend/src/api.js
+  f9d25104ba785652 98-111
+services/frontend/src/pages/Services.jsx
+  f9d25104ba785652 2,103,107,134-137,205
+services/frontend/vite.config.js
+  f9d25104ba785652 8-10
+docker-compose.yaml
+  f9d25104ba785652 23
+  aea15efac5a234d5 48
+services/frontend/src/pages/ManagedServices.jsx
+  f9d25104ba785652 2,124,127,137-140,333
+services/backend/metrics/poller.js
+  f9d25104ba785652 22-23,25,28,32,56
+  aea15efac5a234d5 1-21,24,26-27,29-31,33-55,57-96
+services/frontend/src/pages/About.jsx
+  4e84e66c15ac1ecf 2,33
+services/frontend/src/pages/Audit.jsx
+  f9d25104ba785652 2,36,40-43,76
+services/backend/http/routes/infrastructure.js
+  f9d25104ba785652 7,196-315
+services/backend/index.js
+  f9d25104ba785652 6-7,19-26,34-35
+services/frontend/src/index.css
+  f9d25104ba785652 219,1003
+services/frontend/src/pages/Jobs.jsx
+  f9d25104ba785652 2,146,150-153
+services/frontend/src/pages/ServiceDetail.jsx
+  f9d25104ba785652 5,9-12,86-96,100,126,131,136-139,159-236,238-240,245-343,365-368,384,390-391,395-401,460-470,546-548,584-591,597,599-609,612-614,620-625,647,731,745-768,770-805,808-812,818,835,840,850,856-857,860-954,956,1014-1055
+services/frontend/src/pages/Backups.jsx
+  f9d25104ba785652 2,68,78-81
+services/frontend/src/components/MathCaptcha.jsx
+  aea15efac5a234d5 1-96
+services/backend/restart/monitor.js
+  aea15efac5a234d5 1-179
+services/frontend/src/components/Layout.jsx
+  f9d25104ba785652 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "abf6cb24a3b35a4a59f7cb29e51e727f3f535908",
+  "prompts": {
+    "4e84e66c15ac1ecf": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f7183ead-b882-479a-8c6f-775ceaf46772",
+        "model": "copilot/auto"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 3,
+      "accepted_lines": 49,
+      "overriden_lines": 4
+    },
+    "6ed47c2083e48c68": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f0a59332-8e75-4328-b8df-d70beff36677",
+        "model": "copilot/claude-haiku-4.5"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "aea15efac5a234d5": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "c2ae8a79-6d42-4639-97ac-7e16fbdd4568",
+        "model": "copilot/claude-sonnet-4.6"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 475,
+      "total_deletions": 11,
+      "accepted_lines": 467,
+      "overriden_lines": 0
+    },
+    "f9d25104ba785652": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "80d9d3e7-1588-4592-a55e-1c38940cf005",
+        "model": "copilot/claude-sonnet-4.6"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 1168,
+      "total_deletions": 494,
+      "accepted_lines": 768,
+      "overriden_lines": 9
+    }
+  }
+}
