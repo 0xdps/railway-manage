@@ -28,6 +28,8 @@ COPY services/backend/core ./services/backend/core
 COPY services/backend/http ./services/backend/http
 COPY services/backend/railway ./services/backend/railway
 COPY services/backend/backup ./services/backend/backup
+COPY services/backend/restart ./services/backend/restart
+COPY services/backend/metrics ./services/backend/metrics
 COPY services/backend/index.js ./services/backend/
 
 # Copy frontend source files
@@ -54,6 +56,8 @@ COPY services/backend/core ./services/backend/core
 COPY services/backend/http ./services/backend/http
 COPY services/backend/railway ./services/backend/railway
 COPY services/backend/backup ./services/backend/backup
+COPY services/backend/restart ./services/backend/restart
+COPY services/backend/metrics ./services/backend/metrics
 COPY services/backend/index.js ./services/backend/
 COPY services/backend/package.json ./services/backend/
 
@@ -74,6 +78,8 @@ COPY --from=builder /app/services/backend/core ./services/backend/core
 COPY --from=builder /app/services/backend/http ./services/backend/http
 COPY --from=builder /app/services/backend/railway ./services/backend/railway
 COPY --from=builder /app/services/backend/backup ./services/backend/backup
+COPY --from=builder /app/services/backend/restart ./services/backend/restart
+COPY --from=builder /app/services/backend/metrics ./services/backend/metrics
 COPY --from=builder /app/services/backend/index.js ./services/backend/
 COPY --from=builder /app/services/backend/package.json ./services/backend/
 
