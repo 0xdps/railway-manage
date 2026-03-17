@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "d3656df1024d85ff38ec66f8b58ec0546f30a9b6",
+  "prompts": {
+    "6ed47c2083e48c68": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f0a59332-8e75-4328-b8df-d70beff36677",
+        "model": "copilot/claude-haiku-4.5"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
