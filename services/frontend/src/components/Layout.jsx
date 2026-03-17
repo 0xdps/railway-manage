@@ -46,6 +46,7 @@ export default function Layout({ children, onLogout }) {
   const activeItem = allNavItems.find((item) => item.path === location.pathname);
 
   return (
+    <>
     <div className="app-layout">
       {/* Sidebar */}
       <aside className="sidebar">
@@ -100,5 +101,25 @@ export default function Layout({ children, onLogout }) {
         <main className="page-body">{children}</main>
       </div>
     </div>
+
+    <footer className="site-footer">
+      <span className="site-footer-credit">
+        Made with <span className="footer-heart">&#9829;</span> by{' '}
+        <a
+          href="https://github.com/0xdps"
+          className="footer-link"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Devendra Pratap Singh
+        </a>
+      </span>
+      <nav className="site-footer-nav">
+        <a href="/about" className="footer-link" onClick={e => { e.preventDefault(); navigate('/about'); }}>About</a>
+        <a href="https://github.com/0xdps/railway-manage" className="footer-link" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="https://github.com/0xdps/railway-manage/issues" className="footer-link" target="_blank" rel="noopener noreferrer">Issues ↗</a>
+      </nav>
+    </footer>
+    </>
   );
 }
