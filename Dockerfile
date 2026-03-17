@@ -64,11 +64,14 @@ COPY services/backend/package.json ./services/backend/
 EXPOSE 3000
 CMD ["node", "--watch", "services/backend/index.js"]
 
-# Production stage - Caddy + Node backend (uses precompiled binaries from builder)
-# Must use the same Node major version as the builder (node:22-alpine) so that
-# the natively compiled better-sqlite3.node binary is ABI-compatible at runtime.
+# Production stage - Node 22 (ABI-compatible with builder) + official Caddy binary
+# Caddy binary is copied from the official image to avoid apk community-repo availability issues.
+FROM caddy:2-alpine AS caddy-bin
+
 FROM node:22-alpine AS prod
-RUN apk add --no-cache caddy curl postgresql17-client mysql-client redis
+# Pull the official Caddy binary from the caddy image
+COPY --from=caddy-bin /usr/bin/caddy /usr/bin/caddy
+RUN apk add --no-cache curl postgresql17-client mysql-client redis
 WORKDIR /app
 RUN mkdir -p /usr/share/caddy /var/data /data
 
