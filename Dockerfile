@@ -65,8 +65,10 @@ EXPOSE 3000
 CMD ["node", "--watch", "services/backend/index.js"]
 
 # Production stage - Caddy + Node backend (uses precompiled binaries from builder)
-FROM caddy:2-alpine AS prod
-RUN apk add --no-cache nodejs npm curl postgresql17-client mysql-client redis
+# Must use the same Node major version as the builder (node:22-alpine) so that
+# the natively compiled better-sqlite3.node binary is ABI-compatible at runtime.
+FROM node:22-alpine AS prod
+RUN apk add --no-cache caddy curl postgresql17-client mysql-client redis
 WORKDIR /app
 RUN mkdir -p /usr/share/caddy /var/data /data
 
