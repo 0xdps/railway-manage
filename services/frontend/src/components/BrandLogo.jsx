@@ -19,7 +19,7 @@ export default function BrandLogo({ size = 'md', showTagline = false, className 
         className="brand-logo-mark"
       />
       <div className="brand-logo-copy">
-        <p className="brand-logo-title" style={{ fontSize: cfg.title, letterSpacing: "0.01rem", fontWeight: 600 }}>
+        <p className="brand-logo-title" style={{ fontSize: cfg.title, letterSpacing: "0.01rem", fontWeight: 600, marginBottom: showTagline ? cfg.gap : 0 }}>
           Railway Manage
         </p>
         {showTagline ? (

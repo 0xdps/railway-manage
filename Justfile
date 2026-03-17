@@ -1,232 +1,346 @@
-# Railway-Manage Task Runner
-# Usage: just <recipe> [args]
+# Railway-Manage Development & Production Task Runner
 
-set shell := ["zsh", "-cu"]
-set dotenv-load := true
+# Variables
+COMPOSE_FILE := "docker-compose.yaml"
+APP_INTERNAL_PORT := "8080"
+CADDY_INTERNAL_PORT := "8080"
+PORTLESS_ALIAS := "railway-manage"
+PORTLESS_PROXY_PORT := "1355"
 
-# Configuration
-env_file := ".env"
-env_example := ".env.example"
+# Compose service names
+DEV_CADDY_SERVICE := "caddy"
+PROD_APP_SERVICE := "app"
 
-# Default help
+# Default recipe when running `just`
 default:
-  @just --list
+    @just --list
+
+# Validate local prerequisites and runtime contract.
+doctor:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v docker >/dev/null 2>&1 || { echo "❌ docker is required"; exit 1; }
+    docker info >/dev/null 2>&1 || { echo "❌ Docker daemon is not running"; exit 1; }
+    command -v node >/dev/null 2>&1 || { echo "❌ node is required"; exit 1; }
+    command -v npm >/dev/null 2>&1 || { echo "❌ npm is required"; exit 1; }
+    command -v just >/dev/null 2>&1 || { echo "❌ just is required"; exit 1; }
+    [ -f .env ] || { echo "❌ .env missing. Run: cp .env.example .env"; exit 1; }
+    npx portless --help >/dev/null 2>&1 || { echo "❌ Portless not available via npx"; exit 1; }
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev config >/dev/null
+        docker-compose -f {{COMPOSE_FILE}} --profile prod config >/dev/null
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev config >/dev/null
+        docker compose -f {{COMPOSE_FILE}} --profile prod config >/dev/null
+    fi
+    echo "✅ doctor: environment is ready"
+
+# Validate compose profile contract.
+contract:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev config >/dev/null
+        docker-compose -f {{COMPOSE_FILE}} --profile prod config >/dev/null
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev config >/dev/null
+        docker compose -f {{COMPOSE_FILE}} --profile prod config >/dev/null
+    fi
+    echo "✅ contract: compose profiles are valid"
 
 # ============================================================================
-# Development
+# DEVELOPMENT RECIPES
 # ============================================================================
 
-# Install dependencies (backend + frontend)
-install:
-  #!/usr/bin/env zsh
-  echo "📦 Installing dependencies..."
-  cd services/backend && npm install
-  cd ../.. 
-  cd services/frontend && npm install
-  echo "✓ Dependencies installed"
-
-# Start local dev environment (backend + frontend without Docker)
+# Start development environment with hot reload (Caddy + Backend + Frontend)
 dev:
-  #!/usr/bin/env zsh
-  just install
-  echo "🚀 Starting development server..."
-  npm run dev:local
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-# Start development with Docker Compose
-docker-dev:
-  #!/usr/bin/env zsh
-  just docker-build
-  just docker-up
-  echo "🐳 Docker development environment started"
-  echo "   Backend: http://localhost:3000"
-  echo "   Frontend: http://localhost"
-  echo "   Type 'just docker-logs' to see logs"
+    [ -f .env ] || { echo "❌ .env missing. Run: cp .env.example .env"; exit 1; }
+    if command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE="docker-compose"
+    else
+        COMPOSE="docker compose"
+    fi
+
+    echo "🚀 Starting Railway-Manage Development Environment"
+    echo ""
+    echo "Starting Portless proxy..."
+    npx portless proxy start >/dev/null 2>&1 || true
+
+    echo "Starting containers (Docker will assign a random port)..."
+    $COMPOSE -f {{COMPOSE_FILE}} --profile dev up -d --build --force-recreate {{DEV_CADDY_SERVICE}}
+
+    tries=0
+    max_tries=90
+    PORT=""
+    while [ $tries -lt $max_tries ]; do
+        PORT=$($COMPOSE -f {{COMPOSE_FILE}} --profile dev port {{DEV_CADDY_SERVICE}} {{CADDY_INTERNAL_PORT}} 2>/dev/null | awk -F: '{print $NF}')
+        if [ -n "$PORT" ]; then
+            break
+        fi
+        tries=$((tries + 1))
+        sleep 1
+    done
+
+    if [ -z "$PORT" ]; then
+        echo "❌ Could not detect Caddy port. Check container status:"
+        $COMPOSE -f {{COMPOSE_FILE}} --profile dev ps
+        exit 1
+    fi
+
+    echo ""
+    echo "✅ Services started successfully!"
+    echo ""
+    echo "Direct access:"
+    echo "  → http://localhost:$PORT"
+    echo ""
+    npx portless alias {{PORTLESS_ALIAS}} $PORT >/dev/null 2>&1 || true
+    echo "✅ Portless alias ready:"
+    echo "  → http://{{PORTLESS_ALIAS}}.localhost:{{PORTLESS_PROXY_PORT}}"
+    echo ""
+
+    health_tries=0
+    health_max=120
+    while [ $health_tries -lt $health_max ]; do
+        if curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1; then
+            echo "✅ Dev service is healthy"
+            break
+        fi
+        health_tries=$((health_tries + 1))
+        sleep 1
+    done
+    if [ $health_tries -ge $health_max ]; then
+        echo "⚠️  Dev service did not become healthy within timeout"
+    fi
+
+    cleanup() {
+        $COMPOSE -f {{COMPOSE_FILE}} --profile dev down --remove-orphans >/dev/null 2>&1 || true
+        npx portless alias --remove {{PORTLESS_ALIAS}} >/dev/null 2>&1 || true
+    }
+    trap cleanup EXIT INT TERM
+
+    echo "Streaming app logs (backend + frontend)."
+    echo "Ctrl+C stops containers."
+    $COMPOSE -f {{COMPOSE_FILE}} --profile dev logs -f backend frontend
+
+# Start development in background (silent)
+dev-bg:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev up --build -d
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev up --build -d
+    fi
+
+# Start development locally without Docker (requires Node.js locally)
+dev-local:
+    npm run dev
+
+# Start backend locally (direct Node.js)
+dev-be-local:
+    cd services/backend && node index.js
+
+# Start frontend locally (direct Node.js)
+dev-fe-local:
+    cd services/frontend && npm run dev
+
+# Stop all development services
+down:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev down
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev down
+    fi
+    npx portless alias --remove {{PORTLESS_ALIAS}} >/dev/null 2>&1 || true
+
+# View all logs
+logs:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev logs -f backend frontend
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev logs -f backend frontend
+    fi
+
+# View backend logs only
+logs-backend:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev logs -f backend
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev logs -f backend
+    fi
+
+# View frontend logs only
+logs-frontend:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev logs -f frontend
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev logs -f frontend
+    fi
+
+# View Caddy logs only
+logs-caddy:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev logs -f caddy
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev logs -f caddy
+    fi
+
+# Reset development environment (removes volumes and containers)
+reset:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile dev down -v
+        docker-compose -f {{COMPOSE_FILE}} --profile dev up --build
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile dev down -v
+        docker compose -f {{COMPOSE_FILE}} --profile dev up --build
+    fi
 
 # ============================================================================
-# Docker Commands
+# PRODUCTION RECIPES
 # ============================================================================
 
-# Build Docker images (development)
-docker-build:
-  #!/usr/bin/env zsh
-  echo "🔨 Building Docker images..."
-  docker-compose -f docker-compose.yaml --profile dev build
-  echo "✓ Images built"
+# Start production environment
+prod:
+    #!/usr/bin/env bash
+    echo "🚀 Starting Railway-Manage Production"
+    echo ""
+    if command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE="docker-compose"
+    else
+        COMPOSE="docker compose"
+    fi
+    echo "Starting containers (Docker will assign a random port)..."
+    $COMPOSE -f {{COMPOSE_FILE}} --profile prod up --build -d
+    sleep 3
 
-# Start Docker Compose with dev profile
-docker-up:
-  #!/usr/bin/env zsh
-  if [ ! -f "{{env_file}}" ]; then
-    echo "❌ Missing .env file. Copy from .env.example:"
-    echo "   cp {{env_example}} {{env_file}}"
-    exit 1
-  fi
-  echo "🚀 Starting Docker Compose (dev profile)..."
-  docker-compose -f docker-compose.yaml --profile dev up -d
-  echo "✓ Services running"
-  echo "   Backend: http://localhost:3000/health"
-  echo "   Frontend: http://localhost"
-  echo "   Caddy: http://localhost (reverse proxy)"
+    PORT=$($COMPOSE -f {{COMPOSE_FILE}} --profile prod port {{PROD_APP_SERVICE}} {{APP_INTERNAL_PORT}} 2>/dev/null | awk -F: '{print $NF}')
+    if [ -z "$PORT" ]; then
+        echo "❌ Could not detect production port. Check container status:"
+        $COMPOSE -f {{COMPOSE_FILE}} --profile prod ps
+        exit 1
+    fi
 
-# Stop Docker Compose
-docker-down:
-  #!/usr/bin/env zsh
-  echo "🛑 Stopping Docker Compose..."
-  docker-compose -f docker-compose.yaml --profile dev down
-  echo "✓ Services stopped"
+    echo ""
+    echo "✅ Production started successfully!"
+    echo ""
+    echo "Direct access:"
+    echo "  → http://localhost:$PORT"
+    echo ""
 
-# View logs from all Docker services
-docker-logs:
-  #!/usr/bin/env zsh
-  docker-compose -f docker-compose.yaml --profile dev logs -f
+# Start production in background
+prod-bg:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile prod up --build -d
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile prod up --build -d
+    fi
 
-# View logs for a specific service (backend, frontend, or caddy)
-docker-logs-service service:
-  #!/usr/bin/env zsh
-  docker-compose -f docker-compose.yaml --profile dev logs -f {{service}}
+# Stop production services
+prod-down:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile prod down
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile prod down
+    fi
 
-# Rebuild and restart services
-docker-restart:
-  #!/usr/bin/env zsh
-  @just docker-down
-  @just docker-build
-  @just docker-up
-  echo "✓ Restarted"
+# View production logs
+prod-logs:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile prod logs -f
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile prod logs -f
+    fi
 
-# Clean containers, networks, and volumes (destructive)
-docker-reset:
-  #!/usr/bin/env zsh
-  echo "⚠️  Removing containers, networks, and volumes..."
-  docker-compose -f docker-compose.yaml --profile dev down -v
-  echo "✓ Reset complete"
-
-# ============================================================================
-# Service Commands
-# ============================================================================
-
-# Install backend dependencies
-backend-install:
-  #!/usr/bin/env zsh
-  echo "📦 Installing backend dependencies..."
-  cd services/backend && npm install
-  echo "✓ Backend ready"
-
-# Start backend dev server (without Docker)
-backend-dev:
-  #!/usr/bin/env zsh
-  @just backend-install
-  echo "🚀 Starting backend..."
-  cd services/backend && npm run dev
-
-# Install frontend dependencies
-frontend-install:
-  #!/usr/bin/env zsh
-  echo "📦 Installing frontend dependencies..."
-  cd services/frontend && npm install
-  echo "✓ Frontend ready"
-
-# Start frontend dev server (without Docker)
-frontend-dev:
-  #!/usr/bin/env zsh
-  @just frontend-install
-  echo "🚀 Starting frontend..."
-  cd services/frontend && npm run dev
+# Reset production environment (removes volumes)
+prod-reset:
+    #!/usr/bin/env bash
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f {{COMPOSE_FILE}} --profile prod down -v
+        docker-compose -f {{COMPOSE_FILE}} --profile prod up --build
+    else
+        docker compose -f {{COMPOSE_FILE}} --profile prod down -v
+        docker compose -f {{COMPOSE_FILE}} --profile prod up --build
+    fi
 
 # ============================================================================
-# Build for Production
+# BUILD RECIPES
 # ============================================================================
 
-# Build production Docker image
-build-prod:
-  #!/usr/bin/env zsh
-  echo "🔨 Building production image..."
-  docker build -f Dockerfile --target prod -t railway-manage:latest .
-  echo "✓ Production image ready: railway-manage:latest"
+# Build frontend
+build-fe:
+    cd services/frontend && npm run build
+
+# Build backend (syntax check)
+build-be:
+    node -c services/backend/index.js
+
+# Build both frontend and backend
+build:
+    just build-be
+    just build-fe
 
 # ============================================================================
-# Utilities
+# LINTING & FORMATTING
 # ============================================================================
+
+# Run ESLint
+lint:
+    #!/usr/bin/env bash
+    cd services/backend && npm run lint 2>/dev/null || true
+    cd ../frontend && npm run lint 2>/dev/null || true
+
+# Format code
+format:
+    #!/usr/bin/env bash
+    cd services/backend && npm run format 2>/dev/null || true
+    cd ../frontend && npm run format 2>/dev/null || true
+
+# Check formatting without changes
+format-check:
+    #!/usr/bin/env bash
+    cd services/backend && npm run format:check 2>/dev/null || true
+    cd ../frontend && npm run format:check 2>/dev/null || true
+
+# Run all checks (lint + format check)
+check:
+    just lint
+    just format-check
+
+# ============================================================================
+# INFRASTRUCTURE
+# ============================================================================
+
+# Install dependencies for all packages
+install:
+    npm --prefix services/backend install
+    npm --prefix services/frontend install
 
 # Setup .env from example (if not exists)
 env-setup:
-  #!/usr/bin/env zsh
-  if [ ! -f "{{env_file}}" ]; then
-    echo "📝 Creating .env from .env.example..."
-    cp {{env_example}} {{env_file}}
-    echo "⚠️  Edit .env with your actual configuration"
-  else
-    echo "✓ .env already exists"
-  fi
+    #!/usr/bin/env bash
+    if [ ! -f .env ]; then
+        echo "📝 Creating .env from .env.example..."
+        cp .env.example .env
+        echo "⚠️  Edit .env with your actual configuration"
+    else
+        echo "✓ .env already exists"
+    fi
 
-# Format code
-fmt:
-  #!/usr/bin/env zsh
-  echo "🎨 Formatting code..."
-  cd services/backend && npm run format 2>/dev/null || true
-  cd ../../services/frontend && npm run format 2>/dev/null || true
-  echo "✓ Code formatted"
-
-# Lint code
-lint:
-  #!/usr/bin/env zsh
-  echo "🔍 Linting code..."
-  cd services/backend && npm run lint 2>/dev/null || true
-  cd ../../services/frontend && npm run lint 2>/dev/null || true
-  echo "✓ Linting complete"
-
-# Remove all node_modules and package-lock files
-clean-cache:
-  #!/usr/bin/env zsh
-  echo "🧹 Cleaning dependencies..."
-  find services -name node_modules -type d -exec rm -rf {} + 2>/dev/null || true
-  find services -name package-lock.json -delete
-  echo "✓ Cache cleaned"
-
-# Remove local data directory
-clean-data:
-  #!/usr/bin/env zsh
-  echo "🗑️  Removing local data..."
-  rm -rf data
-  echo "✓ Data removed"
-
-# Full clean (dependencies + data)
-clean-all: clean-cache clean-data
-  #!/usr/bin/env zsh
-  echo "✓ Full cleanup complete"
-
-# ============================================================================
-# Recipes Summary
-# ============================================================================
-
-# Show this help
-help:
-  @just --list --unsorted
-
-# Show development workflow
-info:
-  #!/usr/bin/env zsh
-  echo ""
-  echo "🚀 Railway-Manage Development Guide"
-  echo "===================================="
-  echo ""
-  echo "📌 INITIAL SETUP:"
-  echo "  1. just env-setup          # Create .env from example"
-  echo "  2. just install            # Install frontend + backend deps"
-  echo "  3. just dev                # Start local development"
-  echo ""
-  echo "🐳 DOCKER WORKFLOW:"
-  echo "  just docker-dev            # Build images & start services"
-  echo "  just docker-logs           # View all logs"
-  echo "  just docker-logs-service backend  # View backend logs"
-  echo "  just docker-restart        # Restart all services"
-  echo "  just docker-reset          # Full reset (destructive)"
-  echo ""
-  echo "🛠️  SERVICE DEVELOPMENT:"
-  echo "  just backend-dev           # Start backend only (no Docker)"
-  echo "  just frontend-dev          # Start frontend only (no Docker)"
-  echo ""
-  echo "🧹 MAINTENANCE:"
-  echo "  just fmt                   # Format code"
-  echo "  just lint                  # Lint code"
-  echo "  just clean-all             # Remove deps + data"
-  echo ""
+# Remove all node_modules
+clean:
+    #!/usr/bin/env bash
+    find services -name node_modules -type d -exec rm -rf {} + 2>/dev/null || true
+    echo "✓ node_modules cleaned"

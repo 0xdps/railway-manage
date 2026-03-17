@@ -1,5 +1,5 @@
 # Builder stage - compile both backend and frontend with native modules for Linux
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache python3 make g++ build-base linux-headers postgresql17-client mysql-client redis
 
@@ -42,7 +42,7 @@ RUN npm --prefix services/frontend run build
 
 # Dev stage - backend with node --watch for hot reload
 # Uses precompiled node_modules from builder (contains Linux-compiled better-sqlite3)
-FROM node:20-alpine AS dev
+FROM node:22-alpine AS dev
 WORKDIR /app
 RUN apk add --no-cache curl postgresql17-client mysql-client redis
 

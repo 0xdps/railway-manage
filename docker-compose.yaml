@@ -21,8 +21,6 @@ services:
       - ./services/backend:/app/services/backend
       - backend_node_modules:/app/services/backend/node_modules  # Don't override precompiled Linux modules
       - ./data:/app/data
-    networks:
-      - railway-manage
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -31,7 +29,7 @@ services:
       retries: 3
       start_period: 10s
 
-  # FRONTEND - Dev mode (Vite hot reload)
+  # FRONTEND - Dev only (Vite hot reload)
   frontend:
     container_name: railway-manage-frontend
     profiles: ["dev"]
@@ -52,8 +50,6 @@ services:
       - ./services/frontend/tailwind.config.js:/app/tailwind.config.js:ro
       - ./services/frontend/postcss.config.js:/app/postcss.config.js:ro
       - /app/node_modules
-    networks:
-      - railway-manage
     restart: unless-stopped
     depends_on:
       backend:
@@ -64,14 +60,15 @@ services:
     container_name: railway-manage-caddy
     profiles: ["dev"]
     image: caddy:2-alpine
+    # No fixed host port — Docker assigns a random one, detected by `just dev`
     ports:
-      - "${CADDY_PORT:-80}:${CADDY_PORT:-80}"
+      - "${CADDY_INTERNAL_PORT:-8080}"
     command:
       - /bin/sh
       - -ec
       - |
         cat > /tmp/Caddyfile <<EOF
-        :$${CADDY_PORT} {
+        :$${CADDY_INTERNAL_PORT:-8080} {
           handle /api/* {
             reverse_proxy backend:3000
           }
@@ -96,16 +93,41 @@ services:
         caddy fmt --overwrite /tmp/Caddyfile
         exec caddy run --config /tmp/Caddyfile
     environment:
-      CADDY_PORT: ${CADDY_PORT:-80}
-    networks:
-      - railway-manage
+      - CADDY_INTERNAL_PORT=${CADDY_INTERNAL_PORT:-8080}
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
       frontend:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:${CADDY_INTERNAL_PORT:-8080}/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
-networks:
-  railway-manage:
-    driver: bridge
+  # PRODUCTION APP - Unified build (Caddy + Node backend)
+  app:
+    container_name: railway-manage
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    ports:
+      - "${APP_INTERNAL_PORT:-8080}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=${APP_INTERNAL_PORT:-8080}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${APP_INTERNAL_PORT:-8080}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

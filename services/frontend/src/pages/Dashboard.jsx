@@ -1,32 +1,36 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, ChevronRight, Database, AlarmClock, Clock } from 'lucide-react';
+import { ChevronRight, ChevronDown, Database, AlarmClock, Clock, CheckCircle, AlertTriangle, XCircle, LogIn, Server, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 
-// ─── 18 rotating hints ────────────────────────────────────────────────────────
-const ALL_HINTS = [
-  { key: 1,  text: <><strong>Managed services</strong> need a <code>DATABASE_URL</code> (or similar) env var key — the connection string variable from Railway.</> },
-  { key: 2,  text: <>Credentials are <strong>never stored</strong>. They are fetched live from Railway at the moment each backup runs.</> },
-  { key: 3,  text: <>Trigger a <strong>manual backup</strong> any time from the Backups page using the "Trigger Now" button.</> },
-  { key: 4,  text: <>Disable a job on the <strong>Jobs page</strong> to pause its schedule without removing it.</> },
-  { key: 5,  text: <>Click any <strong>cron expression</strong> on the Jobs page to edit it inline — press Enter to save.</> },
-  { key: 6,  text: <>The <strong>retention_cleanup</strong> job automatically prunes old backup files per your retention policy.</> },
-  { key: 7,  text: <>Backup files land in <code>/data/backups</code> — mount a persistent Docker volume there to survive container restarts.</> },
-  { key: 8,  text: <>Set <code>BACKUP_STORAGE_PATH</code> to change where compressed backup files are written on the host.</> },
-  { key: 9,  text: <>All backup dumps are <strong>gzip-compressed</strong> automatically before being written to disk.</> },
-  { key: 10, text: <><strong>Redis</strong> backups use <code>BGSAVE</code> — <code>dump.rdb</code> is copied after the background save completes.</> },
-  { key: 11, text: <><strong>MySQL</strong> backups use <code>mysqldump --single-transaction</code> for a consistent snapshot without table locks.</> },
-  { key: 12, text: <><strong>PostgreSQL</strong> backups use <code>pg_dump</code> in custom format for better compression and restore flexibility.</> },
-  { key: 13, text: <>The <strong>Audit Log</strong> records every API action with actor and timestamp — useful for traceability.</> },
-  { key: 14, text: <>Change <code>ADMIN_PASSWORD</code> and <code>JWT_SECRET</code> before exposing railway-manage to the internet.</> },
-  { key: 15, text: <>The <strong>JWT</strong> is stored in an <code>httpOnly</code> cookie and cannot be read by JavaScript — safe against XSS.</> },
-  { key: 16, text: <><strong>Rate limiting</strong> is applied to the login endpoint to prevent brute-force attacks.</> },
-  { key: 17, text: <>You can register <strong>Postgres</strong>, <strong>MySQL</strong>, and <strong>Redis</strong> services from the same Railway project simultaneously.</> },
-  { key: 18, text: <><code>RAILWAY_ENVIRONMENT_ID</code> is optional — railway-manage falls back to the default Railway environment if unset.</> },
+// ─── Static quick-reference items ─────────────────────────────────────────────
+const QUICK_REF = [
+  'Backup files are stored in /data/backups — mount a persistent Docker volume there.',
+  'JWT is stored in an httpOnly cookie and cannot be read by JavaScript — safe against XSS.',
+  'Set BACKUP_STORAGE_PATH to change where backup files are written on the host.',
+  'Login endpoint is rate-limited to prevent brute-force attacks.',
+  'Trigger a manual backup any time from the Backups page using "Trigger Now".',
+  'Disable a job on the Jobs page to pause its schedule without deleting it.',
+  'Change ADMIN_PASSWORD and JWT_SECRET before exposing railway-manage to the internet.',
+  'RAILWAY_ENVIRONMENT_ID is optional — falls back to the default Railway environment if unset.',
 ];
 
-function pickHints(all) {
-  return [...all].sort(() => Math.random() - 0.5).slice(0, 5);
+function formatJobType(type) {
+  const map = {
+    backup_hourly: 'Hourly Backup',
+    backup_daily: 'Daily Backup',
+    backup_weekly: 'Weekly Backup',
+    retention_cleanup: 'Retention Cleanup',
+  };
+  return map[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function activityMeta(action) {
+  if (action.includes('failed') || action.includes('error')) return { color: 'var(--danger)',  Icon: XCircle };
+  if (action.startsWith('backup.'))                            return { color: 'var(--success)', Icon: Database };
+  if (action.startsWith('auth.'))                             return { color: 'var(--accent)',  Icon: LogIn };
+  if (action.startsWith('service.'))                          return { color: 'var(--warning)', Icon: Server };
+  return { color: 'var(--text-secondary)', Icon: Activity };
 }
 
 function relativeTime(unixSecs) {
@@ -53,7 +57,7 @@ export default function Dashboard() {
   const [data, setData] = useState({ services: [], backups: [], managedServices: [], recentAudit: [], jobs: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [hints, setHints] = useState(() => pickHints(ALL_HINTS));
+  const [qrOpen, setQrOpen] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -84,6 +88,26 @@ export default function Dashboard() {
 
   const now = Math.floor(Date.now() / 1000);
   const backups24h = data.backups.filter((b) => b.started_at && now - b.started_at < 86400).length;
+  const failures24h = data.backups.filter((b) => b.started_at && now - b.started_at < 86400 && b.status === 'failed').length;
+
+  const lastSuccess = data.backups
+    .filter((b) => b.status === 'success' && b.started_at)
+    .sort((a, b) => b.started_at - a.started_at)[0];
+  const timeSinceSuccess = lastSuccess ? now - lastSuccess.started_at : null;
+
+  // Derive health state
+  let healthState = 'healthy';
+  if (data.backups.length > 0) {
+    if (timeSinceSuccess === null || timeSinceSuccess > 6 * 3600) healthState = 'critical';
+    else if (failures24h > 0) healthState = 'warning';
+  }
+
+  const healthConfig = {
+    healthy:  { Icon: CheckCircle,  label: 'All systems operational',                  color: 'var(--success)', bg: 'var(--success-bg)', border: 'rgba(34,197,94,0.2)' },
+    warning:  { Icon: AlertTriangle, label: `${failures24h} backup${failures24h !== 1 ? 's' : ''} failed in the last 24h`, color: 'var(--warning)', bg: 'var(--warning-bg)', border: 'rgba(245,158,11,0.2)' },
+    critical: { Icon: XCircle,      label: 'No successful backups in the last 6h',     color: 'var(--danger)',  bg: 'var(--danger-bg)',  border: 'rgba(239,68,68,0.2)' },
+  }[healthState];
+
   const upcomingJobs = data.jobs
     .filter((j) => j.enabled && j.next_run_at && j.job_type.startsWith('backup'))
     .sort((a, b) => a.next_run_at - b.next_run_at)
@@ -95,127 +119,118 @@ export default function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Overview stat cards */}
-      <div className="overview-grid">
+      {/* ── Stats Row (4 cards) ──────────────────────────────────────────── */}
+      <div className="overview-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', marginBottom: 0 }}>
         <div className="panel overview-card">
           <p className="overview-card-label">Managed Services</p>
           <p className="overview-card-value">{data.managedServices.length}</p>
-          <p className="overview-card-sub">Services registered for backup</p>
+          <p className="overview-card-sub">Registered for backup</p>
         </div>
         <div className="panel overview-card">
-          <p className="overview-card-label">Services</p>
+          <p className="overview-card-label">Total Services</p>
           <p className="overview-card-value">{data.services.length}</p>
-          <p className="overview-card-sub">Railway services in this project</p>
+          <p className="overview-card-sub">Railway services in project</p>
         </div>
         <div className="panel overview-card">
-          <p className="overview-card-label">Backups (24H)</p>
+          <p className="overview-card-label">Backups (24h)</p>
           <p className="overview-card-value">{backups24h}</p>
-          <p className="overview-card-sub">Backup runs in the last 24 h</p>
+          <p className="overview-card-sub">Runs in the last 24h</p>
+        </div>
+        <div className="panel overview-card" style={{ borderColor: failures24h > 0 ? 'rgba(239,68,68,0.25)' : undefined }}>
+          <p className="overview-card-label">Failures (24h)</p>
+          <p className="overview-card-value" style={{ color: failures24h > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+            {failures24h}
+          </p>
+          <p className="overview-card-sub">{failures24h > 0 ? 'Action may be needed' : 'No failures'}</p>
         </div>
       </div>
 
-      {/* Middle row: Quick Reference + Recent Backups */}
-      <div style={{ display: 'grid', gridTemplateColumns: '5fr 7fr', gap: 12 }}>
-
-        {/* Quick Reference */}
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">Quick Reference</span>
-            <button
-              onClick={() => setHints(pickHints(ALL_HINTS))}
-              className="btn btn-ghost btn-sm"
-              title="Shuffle tips"
-            >
-              <RefreshCw size={11} />
-            </button>
+      {/* ── System Health Summary ────────────────────────────────────────── */}
+      {data.backups.length > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
+          padding: '10px 14px',
+          borderRadius: 'var(--radius-md)',
+          background: healthConfig.bg,
+          border: `1px solid ${healthConfig.border}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <healthConfig.Icon size={15} style={{ color: healthConfig.color, flexShrink: 0 }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)' }}>System Status</span>
+            <span style={{ color: 'var(--text-muted)' }}>—</span>
+            <span style={{ color: healthConfig.color, fontWeight: 500 }}>{healthConfig.label}</span>
           </div>
-          <div>
-            {hints.map((hint, i) => (
-              <div
-                key={hint.key}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  padding: '11px 14px',
-                  borderBottom: i < hints.length - 1 ? '1px solid var(--border)' : 'none',
-                  fontSize: 13,
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.55,
-                }}
-              >
-                <span style={{
-                  flexShrink: 0,
-                  width: 6, height: 6,
-                  marginTop: 5,
-                  borderRadius: 1,
-                  background: 'var(--accent)',
-                  display: 'inline-block',
-                }} />
-                <span>{hint.text}</span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {lastSuccess && (
+              <span>Last success: <strong style={{ color: 'var(--text-primary)' }}>{relativeTime(lastSuccess.started_at)}</strong></span>
+            )}
+            {failures24h > 0 && (
+              <span>Failures: <strong style={{ color: 'var(--danger)' }}>{failures24h}</strong></span>
+            )}
+            {upcomingJobs[0] && (
+              <span>Next backup: <strong style={{ color: 'var(--accent)' }}>{timeUntil(upcomingJobs[0].next_run_at)}</strong></span>
+            )}
           </div>
         </div>
+      )}
 
-        {/* Recent Backups */}
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">Recent Backups</span>
-            <button onClick={() => navigate('/backups')} className="btn btn-ghost btn-sm">
-              View all <ChevronRight size={11} />
-            </button>
-          </div>
-          {data.backups.length === 0 ? (
-            <div className="empty-state" style={{ padding: '32px 16px' }}>
-              <Database size={24} />
-              <p>No backup runs yet.</p>
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Schedule</th>
-                  <th>Status</th>
-                  <th>When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.backups.slice(0, 5).map((b) => {
-                  const managed = data.managedServices.find(
-                    (m) => m.id === b.service_id || m.railway_service_id === b.service_id
-                  );
-                  return (
-                    <tr key={b.id}>
-                      <td className="primary" style={{ maxWidth: 130 }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                          {managed?.name ?? b.service_id.slice(0, 10) + '…'}
-                        </span>
-                      </td>
-                      <td><span className="badge badge-neutral">{b.schedule}</span></td>
-                      <td>
-                        <span className={`badge badge-${b.status === 'success' ? 'success' : b.status === 'failed' ? 'danger' : 'warning'}`}>
-                          {b.status}
-                        </span>
-                      </td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{relativeTime(b.started_at)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+      {/* ── Recent Backups (full-width primary section) ──────────────────── */}
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Recent Backups</span>
+          <button onClick={() => navigate('/backups')} className="btn btn-ghost btn-sm">
+            View all <ChevronRight size={11} />
+          </button>
         </div>
+        {data.backups.length === 0 ? (
+          <div className="empty-state" style={{ padding: '32px 16px' }}>
+            <Database size={24} />
+            <p>No backup runs yet.</p>
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Schedule</th>
+                <th>Status</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.backups.slice(0, 8).map((b) => {
+                const managed = data.managedServices.find(
+                  (m) => m.id === b.service_id || m.railway_service_id === b.service_id
+                );
+                return (
+                  <tr key={b.id}>
+                    <td className="primary">{managed?.name ?? b.service_id.slice(0, 10) + '…'}</td>
+                    <td><span className="badge badge-neutral">{b.schedule}</span></td>
+                    <td>
+                      <span className={`badge badge-${b.status === 'success' ? 'success' : b.status === 'failed' ? 'danger' : 'warning'}`}>
+                        {b.status}
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{relativeTime(b.started_at)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {/* Bottom row: Upcoming Backups + Recent Activity */}
+      {/* ── Upcoming Jobs + Recent Activity ─────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 
-        {/* Upcoming Backups */}
+        {/* Upcoming Jobs — next run time only, no raw cron */}
         <div className="panel">
           <div className="panel-header">
-            <span className="panel-title">Upcoming Backups</span>
+            <span className="panel-title">Upcoming Jobs</span>
             <button onClick={() => navigate('/jobs')} className="btn btn-ghost btn-sm">
               View jobs <ChevronRight size={11} />
             </button>
@@ -230,16 +245,14 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>Job</th>
-                  <th>Schedule</th>
                   <th>Next Run</th>
                 </tr>
               </thead>
               <tbody>
                 {upcomingJobs.map((j) => (
                   <tr key={j.id}>
-                    <td className="primary mono" style={{ fontSize: 12 }}>{j.job_type}</td>
-                    <td className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{j.schedule}</td>
-                    <td style={{ color: 'var(--accent)', fontSize: 12 }}>{timeUntil(j.next_run_at)}</td>
+                    <td className="primary">{formatJobType(j.job_type)}</td>
+                    <td style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{timeUntil(j.next_run_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -247,7 +260,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Recent Activity (Audit Log) */}
+        {/* Recent Activity — color-coded by event type */}
         <div className="panel">
           <div className="panel-header">
             <span className="panel-title">Recent Activity</span>
@@ -270,20 +283,81 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {data.recentAudit.map((e) => (
-                  <tr key={e.id}>
-                    <td className="primary mono" style={{ fontSize: 11 }}>{e.action}</td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{e.actor}</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{relativeTime(e.created_at)}</td>
-                  </tr>
-                ))}
+                {data.recentAudit.map((e) => {
+                  const { color, Icon } = activityMeta(e.action);
+                  return (
+                    <tr key={e.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Icon size={12} style={{ color, flexShrink: 0 }} />
+                          <span style={{ color, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{e.action}</span>
+                        </div>
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{e.actor}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{relativeTime(e.created_at)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
       </div>
 
+      {/* ── Quick Reference (collapsed accordion, lowest priority) ─────── */}
+      <div className="panel">
+        <button
+          onClick={() => setQrOpen((o) => !o)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Quick Reference
+          </span>
+          <ChevronDown
+            size={14}
+            style={{ color: 'var(--text-muted)', transition: 'transform 0.18s', transform: qrOpen ? 'rotate(180deg)' : 'none' }}
+          />
+        </button>
+        {qrOpen && (
+          <div style={{ borderTop: '1px solid var(--border)' }}>
+            {QUICK_REF.map((item, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  padding: '10px 14px',
+                  borderBottom: i < QUICK_REF.length - 1 ? '1px solid var(--border)' : 'none',
+                  fontSize: 13,
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.55,
+                }}
+              >
+                <span style={{
+                  flexShrink: 0,
+                  width: 6, height: 6,
+                  marginTop: 5,
+                  borderRadius: 1,
+                  background: 'var(--accent)',
+                  display: 'inline-block',
+                }} />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
-
