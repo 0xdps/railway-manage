@@ -1,0 +1,52 @@
+services/backend/backup/scheduler.js
+  dd6d9a696ad7e145 299,304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "c1117a746c5504a92f8ce857dfa2194e3e659b2b",
+  "prompts": {
+    "6ed47c2083e48c68": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f0a59332-8e75-4328-b8df-d70beff36677",
+        "model": "copilot/claude-haiku-4.5"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a2930fe8a1dde64ff0828d7157ee16e423a352586cf9f51ff0a4e82f126a19fd"
+    },
+    "cc917dfd4aa130e3": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "be031592-7422-452b-8a41-51d013b11705",
+        "model": "copilot/claude-sonnet-4.6"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/1827de0b73aa3ddb46edce49688426f2f5d0fcd97874dce87201aa093d9c9dc9"
+    },
+    "dd6d9a696ad7e145": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "2cb7c5a9-1091-4051-b93a-5f1464acecfd",
+        "model": "copilot/claude-sonnet-4.6"
+      },
+      "human_author": "Devendra Pratap Singh <dps.manit@gmail.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/a96c5e642a1502b79bac644a327fbc159dd4df70cf05ff1a84c53a856bfde4d4"
+    }
+  }
+}
