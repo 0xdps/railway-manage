@@ -296,12 +296,12 @@ class BackupScheduler {
   async triggerBackup(serviceId, schedule) {
     try {
       const service = db.get(
-        'SELECT * FROM services WHERE id = :id AND enabled = 1',
+        'SELECT * FROM services WHERE id = :id',
         { id: serviceId }
       );
 
       if (!service) {
-        throw new Error('Service not found or disabled');
+        throw new Error('Service not found');
       }
 
       await this._backupService(service, schedule);
