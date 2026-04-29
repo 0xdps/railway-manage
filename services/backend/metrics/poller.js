@@ -39,18 +39,9 @@ class MetricsPoller {
 
       if (!services?.length) return;
 
-      const insert = db.prepare(
-        `INSERT OR IGNORE INTO metric_samples (service_id, measurement, ts, value)
-         VALUES (?, ?, ?, ?)`
-      );
-
-      const prune = db.prepare(
-        `DELETE FROM metric_samples WHERE ts < ?`
-      );
-
       const cutoff = Math.floor(Date.now() / 1000) - 3 * 60 * 60; // 3 hours ago
 
-      // Collect all services in parallel, write serially (SQLite is single-writer)
+      // Collect all services in parallel
       const results = await Promise.allSettled(
         services.map((svc) =>
           railwayClient.getServiceMetricsSeries(svc.id, windowMinutes)
@@ -62,20 +53,26 @@ class MetricsPoller {
         )
       );
 
-      db.transaction(() => {
-        for (const result of results) {
-          if (result.status !== 'fulfilled' || !result.value) continue;
-          const { id, series } = result.value;
+      // Write all samples (INSERT OR IGNORE deduplicates by primary key)
+      for (const result of results) {
+        if (result.status !== 'fulfilled' || !result.value) continue;
+        const { id, series } = result.value;
 
-          for (const { ts, value } of series.cpu) {
-            insert.run(id, 'CPU_USAGE', ts, value);
-          }
-          for (const { ts, value } of series.mem) {
-            insert.run(id, 'MEMORY_USAGE_GB', ts, value);
-          }
+        for (const { ts, value } of series.cpu) {
+          await db.run(
+            `INSERT OR IGNORE INTO metric_samples (service_id, measurement, ts, value) VALUES (?, ?, ?, ?)`,
+            [id, 'CPU_USAGE', ts, value]
+          );
         }
-        prune.run(cutoff);
-      });
+        for (const { ts, value } of series.mem) {
+          await db.run(
+            `INSERT OR IGNORE INTO metric_samples (service_id, measurement, ts, value) VALUES (?, ?, ?, ?)`,
+            [id, 'MEMORY_USAGE_GB', ts, value]
+          );
+        }
+      }
+
+      await db.run(`DELETE FROM metric_samples WHERE ts < ?`, [cutoff]);
 
       logger.debug({ count: services.length, cutoff }, 'Metrics poll complete');
     } catch (err) {

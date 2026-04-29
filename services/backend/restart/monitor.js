@@ -36,7 +36,7 @@ class RestartMonitor {
   // ─── Threshold evaluation ────────────────────────────────────────────────
 
   async _evaluateAll() {
-    const policies = db.all(
+    const policies = await db.all(
       `SELECT * FROM restart_policies WHERE enabled = 1`
     );
     if (!policies.length) return;
@@ -65,7 +65,7 @@ class RestartMonitor {
     let reason = null;
 
     if (policy.cpu_threshold != null) {
-      const row = db.get(
+      const row = await db.get(
         `SELECT
            COUNT(*) FILTER (WHERE value > ?) AS violations,
            COUNT(*) AS total
@@ -80,7 +80,7 @@ class RestartMonitor {
     }
 
     if (!triggered && policy.mem_threshold_gb != null) {
-      const row = db.get(
+      const row = await db.get(
         `SELECT
            COUNT(*) FILTER (WHERE value > ?) AS violations,
            COUNT(*) AS total
@@ -106,14 +106,14 @@ class RestartMonitor {
     for (const task of this._cronTasks.values()) task.stop();
     this._cronTasks.clear();
 
-    const policies = db.all(
+    db.all(
       `SELECT service_id, restart_cron FROM restart_policies
        WHERE enabled = 1 AND restart_cron IS NOT NULL AND restart_cron != ''`
-    );
-
-    for (const p of policies) {
-      this._scheduleCron(p.service_id, p.restart_cron);
-    }
+    ).then((policies) => {
+      for (const p of policies) {
+        this._scheduleCron(p.service_id, p.restart_cron);
+      }
+    }).catch((err) => logger.error(err, 'Failed to reload cron tasks'));
   }
 
   _scheduleCron(serviceId, cronExpr) {
@@ -152,12 +152,12 @@ class RestartMonitor {
       await railwayClient.redeployService(serviceId, config.railwayEnvironmentId);
 
       const now = Math.floor(Date.now() / 1000);
-      db.run(
+      await db.run(
         `UPDATE restart_policies SET last_triggered_at = ? WHERE service_id = ?`,
         [now, serviceId]
       );
 
-      db.run(
+      await db.run(
         `INSERT INTO audit_log (id, action, actor, target, meta, created_at)
          VALUES (?, 'service.auto_restart', 'restart-monitor', ?, ?, ?)`,
         [randomUUID(), serviceId, JSON.stringify({ reason }), now]

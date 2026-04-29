@@ -1,101 +1,65 @@
-# Builder stage - compile both backend and frontend with native modules for Linux
-FROM node:22-alpine AS builder
-WORKDIR /app
-RUN apk add --no-cache python3 make g++ build-base linux-headers postgresql17-client mysql-client redis
+# ── Stage: build-core ────────────────────────────────────────────────────────
+# Builds the mesahub-server Go binary for embedded mode.
+# Override MESAHUB_CORE_VERSION to pin a specific commit/tag:
+#   docker build --build-arg MESAHUB_CORE_VERSION=v1.0.0 .
+FROM golang:1.24-alpine AS build-core
+RUN apk add --no-cache gcc musl-dev sqlite-dev git
+ARG MESAHUB_CORE_VERSION=trunk
+RUN git clone --depth 1 --branch ${MESAHUB_CORE_VERSION} \
+    https://github.com/0xdps/mesahub-core.git /mesahub-core
+WORKDIR /mesahub-core/server
+RUN CGO_ENABLED=1 GOOS=linux go build -o /go/bin/mesahub-server ./cmd/server
 
-# Copy package.json files for both services
-COPY services/backend/package*.json ./services/backend/
-COPY services/frontend/package*.json ./services/frontend/
+# ── Stage: build-backend ──────────────────────────────────────────────────────
+FROM node:22-alpine AS build-backend
+WORKDIR /app/backend
+RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY services/backend/package.json services/backend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY services/backend/ ./
 
-# Clear npm cache to ensure clean build (no cached prebuilt binaries)
-RUN npm cache clean --force
+# ── Stage: build-frontend ─────────────────────────────────────────────────────
+FROM node:22-alpine AS build-frontend
+WORKDIR /app/frontend
+RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY services/frontend/package.json services/frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY services/frontend/ ./
+RUN pnpm run build
 
-# Install backend dependencies WITHOUT prebuilt binaries
-# This forces better-sqlite3 to compile from source for Linux architecture
-RUN cd services/backend && \
-    npm install --verbose --no-optional 2>&1 | tee npm-install.log && \
-    cd /app
-
-# Verify better-sqlite3 was compiled correctly (check file type)
-RUN apk add --no-cache file
-RUN file /app/services/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node
-
-# Install frontend dependencies
-RUN cd services/frontend && npm install && cd /app
-
-# Copy backend source files
-COPY services/backend/core ./services/backend/core
-COPY services/backend/http ./services/backend/http
-COPY services/backend/railway ./services/backend/railway
-COPY services/backend/backup ./services/backend/backup
-COPY services/backend/restart ./services/backend/restart
-COPY services/backend/metrics ./services/backend/metrics
-COPY services/backend/index.js ./services/backend/
-
-# Copy frontend source files
-COPY services/frontend/src ./services/frontend/src
-COPY services/frontend/index.html ./services/frontend/
-COPY services/frontend/vite.config.js ./services/frontend/
-COPY services/frontend/postcss.config.js ./services/frontend/
-COPY services/frontend/tailwind.config.js ./services/frontend/
-
-# Build frontend
-RUN npm --prefix services/frontend run build
-
-# Dev stage - backend with node --watch for hot reload
-# Uses precompiled node_modules from builder (contains Linux-compiled better-sqlite3)
-FROM node:22-alpine AS dev
-WORKDIR /app
-RUN apk add --no-cache curl postgresql17-client mysql-client redis
-
-# Copy precompiled backend dependencies FROM BUILDER (not from macOS host)
-COPY --from=builder /app/services/backend/node_modules ./services/backend/node_modules
-
-# Copy source files from host
-COPY services/backend/core ./services/backend/core
-COPY services/backend/http ./services/backend/http
-COPY services/backend/railway ./services/backend/railway
-COPY services/backend/backup ./services/backend/backup
-COPY services/backend/restart ./services/backend/restart
-COPY services/backend/metrics ./services/backend/metrics
-COPY services/backend/index.js ./services/backend/
-COPY services/backend/package.json ./services/backend/
-
-EXPOSE 3000
-CMD ["node", "--watch", "services/backend/index.js"]
-
-# Production stage - Node 22 (ABI-compatible with builder) + official Caddy binary
-# Caddy binary is copied from the official image to avoid apk community-repo availability issues.
+# ── Stage: caddy ─────────────────────────────────────────────────────────────
 FROM caddy:2-alpine AS caddy-bin
 
+# ── Stage: prod ───────────────────────────────────────────────────────────────
 FROM node:22-alpine AS prod
-# Pull the official Caddy binary from the caddy image
 COPY --from=caddy-bin /usr/bin/caddy /usr/bin/caddy
-RUN apk add --no-cache curl postgresql17-client mysql-client redis
+RUN apk add --no-cache curl openssl postgresql17-client mysql-client redis
 WORKDIR /app
-RUN mkdir -p /usr/share/caddy /var/data /data
 
-# Copy precompiled backend dependencies FROM BUILDER (contains Linux-compiled better-sqlite3)
-COPY --from=builder /app/services/backend/node_modules ./services/backend/node_modules
+# mesahub-server (for embedded mode — skipped if MESAHUB_URL points to external)
+COPY --from=build-core /go/bin/mesahub-server /usr/local/bin/mesahub-server
+RUN mkdir -p /data
+VOLUME ["/data"]
 
-# Copy backend code and config
-COPY --from=builder /app/services/backend/core ./services/backend/core
-COPY --from=builder /app/services/backend/http ./services/backend/http
-COPY --from=builder /app/services/backend/railway ./services/backend/railway
-COPY --from=builder /app/services/backend/backup ./services/backend/backup
-COPY --from=builder /app/services/backend/restart ./services/backend/restart
-COPY --from=builder /app/services/backend/metrics ./services/backend/metrics
-COPY --from=builder /app/services/backend/index.js ./services/backend/
-COPY --from=builder /app/services/backend/package.json ./services/backend/
+RUN mkdir -p /usr/share/caddy
 
-# Copy built frontend
-COPY --from=builder /app/services/frontend/dist /usr/share/caddy
+# Backend runtime
+COPY --from=build-backend /app/backend/node_modules ./services/backend/node_modules
+COPY --from=build-backend /app/backend/core          ./services/backend/core
+COPY --from=build-backend /app/backend/http          ./services/backend/http
+COPY --from=build-backend /app/backend/railway       ./services/backend/railway
+COPY --from=build-backend /app/backend/backup        ./services/backend/backup
+COPY --from=build-backend /app/backend/restart       ./services/backend/restart
+COPY --from=build-backend /app/backend/metrics       ./services/backend/metrics
+COPY --from=build-backend /app/backend/index.js      ./services/backend/
+COPY --from=build-backend /app/backend/package.json  ./services/backend/
 
-# Startup script
+# Frontend static files
+COPY --from=build-frontend /app/frontend/dist /usr/share/caddy
+
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-EXPOSE 80 443
+EXPOSE 80
 
-# Default to production stage
 CMD ["/app/start.sh"]

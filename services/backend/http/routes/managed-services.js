@@ -22,7 +22,7 @@ export async function registerManagedServiceRoutes(server) {
     { onRequest: authHook },
     async (request, reply) => {
       try {
-        const services = db.all(
+        const services = await db.all(
           'SELECT id, name, type, railway_service_id, env_var_key, enabled, created_at FROM services ORDER BY created_at DESC'
         );
         return { services };
@@ -61,22 +61,15 @@ export async function registerManagedServiceRoutes(server) {
         const id = randomUUID();
         const createdAt = Math.floor(Date.now() / 1000);
 
-        db.run(
+        await db.run(
           `INSERT INTO services (id, name, type, railway_service_id, env_var_key, enabled, created_at)
            VALUES (?, ?, ?, ?, ?, 1, ?)`,
           [id, name.trim(), type, railway_service_id, env_var_key.trim(), createdAt]
         );
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [
-            randomUUID(),
-            'managed_service.create',
-            'admin',
-            id,
-            JSON.stringify({ name, type }),
-            createdAt,
-          ]
+          [randomUUID(), 'managed_service.create', 'admin', id, JSON.stringify({ name, type }), createdAt]
         );
 
         logger.info({ serviceId: id, name, type }, 'Managed service created');
@@ -100,7 +93,7 @@ export async function registerManagedServiceRoutes(server) {
         const { id } = request.params;
         const { name, type, railway_service_id, env_var_key, enabled } = request.body || {};
 
-        const existing = db.get('SELECT id FROM services WHERE id = ?', [id]);
+        const existing = await db.get('SELECT id FROM services WHERE id = ?', [id]);
         if (!existing) {
           return reply.status(404).send({ error: 'Service not found' });
         }
@@ -125,18 +118,11 @@ export async function registerManagedServiceRoutes(server) {
         }
 
         params.push(id);
-        db.run(`UPDATE services SET ${updates.join(', ')} WHERE id = ?`, params);
+        await db.run(`UPDATE services SET ${updates.join(', ')} WHERE id = ?`, params);
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [
-            randomUUID(),
-            'managed_service.update',
-            'admin',
-            id,
-            JSON.stringify({ name, type, enabled }),
-            Math.floor(Date.now() / 1000),
-          ]
+          [randomUUID(), 'managed_service.update', 'admin', id, JSON.stringify({ name, type, enabled }), Math.floor(Date.now() / 1000)]
         );
 
         return { message: 'Service updated', serviceId: id };
@@ -158,17 +144,17 @@ export async function registerManagedServiceRoutes(server) {
       try {
         const { id } = request.params;
 
-        const existing = db.get('SELECT id, name FROM services WHERE id = ?', [id]);
+        const existing = await db.get('SELECT id, name FROM services WHERE id = ?', [id]);
         if (!existing) {
           return reply.status(404).send({ error: 'Service not found' });
         }
 
         // Remove dependent rows to satisfy FK constraints before deleting the service
-        db.run('DELETE FROM restores WHERE backup_id IN (SELECT id FROM backups WHERE service_id = ?)', [id]);
-        db.run('DELETE FROM backups WHERE service_id = ?', [id]);
-        db.run('DELETE FROM services WHERE id = ?', [id]);
+        await db.run('DELETE FROM restores WHERE backup_id IN (SELECT id FROM backups WHERE service_id = ?)', [id]);
+        await db.run('DELETE FROM backups WHERE service_id = ?', [id]);
+        await db.run('DELETE FROM services WHERE id = ?', [id]);
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',
           [randomUUID(), 'managed_service.delete', 'admin', id, Math.floor(Date.now() / 1000)]
         );

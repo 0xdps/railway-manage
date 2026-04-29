@@ -9,11 +9,11 @@ import restartMonitor from './restart/monitor.js';
 async function main() {
   try {
     // Initialize database
-    db.initialize();
+    await db.initialize();
     logger.info('✓ Database initialized');
 
     // Initialize backup scheduler
-    scheduler.initialize();
+    await scheduler.initialize();
     logger.info('✓ Backup scheduler initialized');
 
     // Initialize metrics poller (per-minute samples → SQLite 3h window)

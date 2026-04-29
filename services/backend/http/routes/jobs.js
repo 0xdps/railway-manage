@@ -14,7 +14,7 @@ export async function registerJobsAndAuditRoutes(server) {
    */
   server.get('/api/jobs', { onRequest: authHook }, async (request, reply) => {
     try {
-      const jobs = db.all('SELECT * FROM jobs ORDER BY job_type');
+      const jobs = await db.all('SELECT * FROM jobs ORDER BY job_type');
       return { jobs };
     } catch (error) {
       logger.error(error, 'Failed to fetch jobs');
@@ -57,20 +57,13 @@ export async function registerJobsAndAuditRoutes(server) {
         params.push(id); // id goes last for WHERE clause
 
         const sql = `UPDATE jobs SET ${updates.join(', ')} WHERE id = ?`;
-        db.run(sql, params);
+        await db.run(sql, params);
 
         logger.info({ jobId: id }, 'Job updated');
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [
-            randomUUID(),
-            'job.update',
-            'admin',
-            id,
-            JSON.stringify({ enabled, schedule }),
-            Math.floor(Date.now() / 1000),
-          ]
+          [randomUUID(), 'job.update', 'admin', id, JSON.stringify({ enabled, schedule }), Math.floor(Date.now() / 1000)]
         );
 
         return { message: 'Job updated', jobId: id };
@@ -93,7 +86,7 @@ export async function registerJobsAndAuditRoutes(server) {
         const { limit = 100, offset = 0 } = request.query || {};
         const cappedLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
         const cappedOffset = Math.max(parseInt(offset, 10) || 0, 0);
-        const auditLog = db.all(
+        const auditLog = await db.all(
           'SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?',
           [cappedLimit, cappedOffset]
         );

@@ -14,7 +14,7 @@ export async function registerBackupRoutes(server) {
    */
   server.get('/api/backups', { onRequest: authHook }, async (request, reply) => {
     try {
-      const backups = db.all('SELECT * FROM backups ORDER BY started_at DESC LIMIT 100');
+      const backups = await db.all('SELECT * FROM backups ORDER BY started_at DESC LIMIT 100');
       return { backups };
     } catch (error) {
       logger.error(error, 'Failed to fetch backups');
@@ -41,15 +41,9 @@ export async function registerBackupRoutes(server) {
         // Actually invoke the scheduler — runs the backup worker immediately
         await scheduler.triggerBackup(serviceId, schedule);
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',
-          [
-            randomUUID(),
-            'backup.trigger',
-            'admin',
-            serviceId,
-            Math.floor(Date.now() / 1000),
-          ]
+          [randomUUID(), 'backup.trigger', 'admin', serviceId, Math.floor(Date.now() / 1000)]
         );
 
         return { message: 'Backup triggered', serviceId, schedule };
@@ -76,15 +70,9 @@ export async function registerBackupRoutes(server) {
 
         logger.info({ backupId }, 'Restore initiated');
 
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',
-          [
-            randomUUID(),
-            'restore.start',
-            'admin',
-            backupId,
-            Math.floor(Date.now() / 1000),
-          ]
+          [randomUUID(), 'restore.start', 'admin', backupId, Math.floor(Date.now() / 1000)]
         );
 
         return { message: 'Restore started', backupId };

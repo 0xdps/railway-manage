@@ -1,39 +1,72 @@
-import Database from 'better-sqlite3';
-import fs from 'fs';
-import path from 'path';
+import { MesahubClient } from '@mesahub/client';
 import config from './config.js';
 import logger from './logger.js';
 
 /**
- * SQLite database singleton with schema initialization.
+ * Parse a `mh://` connection string into its component parts.
+ * The `mh://local/dbname` placeholder must be rewritten by start.sh before
+ * the process starts — this function only handles concrete `mh://key@host/db` URLs.
+ */
+function parseMesahubUrl(raw) {
+  if (!raw.startsWith('mh://')) {
+    throw new Error(`Invalid MESAHUB_URL: must start with mh:// (got: ${JSON.stringify(raw.slice(0, 30))})`);
+  }
+  const parsed = new URL(raw.replace(/^mh:\/\//, 'http://'));
+  const host = parsed.hostname;
+  if (host === 'local') {
+    throw new Error(
+      'mh://local/... is the embedded-mode placeholder — start.sh must rewrite ' +
+      'MESAHUB_URL to mh://token@localhost:PORT/db before the application starts.',
+    );
+  }
+  const isPrivate = host === 'localhost' || host === '127.0.0.1' || !host.includes('.') || host.endsWith('.internal');
+  const scheme = isPrivate ? 'http' : 'https';
+  const portPart = parsed.port ? `:${parsed.port}` : '';
+  const apiUrl = `${scheme}://${host}${portPart}`;
+  const apiKey = decodeURIComponent(parsed.username);
+  if (!apiKey) throw new Error('MESAHUB_URL must include an API key: mh://apikey@host/dbname');
+  const dbName = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!dbName) throw new Error('MESAHUB_URL must include a database name: mh://apikey@host/dbname');
+  return { apiUrl, apiKey, dbName };
+}
+
+/**
+ * Convert a SQL string + params (positional array OR named object `:key` style)
+ * into the positional-array format required by the mesahub client.
+ */
+function toPositional(sql, params) {
+  if (!params || Array.isArray(params)) {
+    return { sql, bindings: params || [] };
+  }
+  const bindings = [];
+  const converted = sql.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
+    bindings.push(params[name]);
+    return '?';
+  });
+  return { sql: converted, bindings };
+}
+
+/**
+ * Async SQLite-over-HTTP database client (mesahub).
  */
 class DatabaseManager {
   constructor() {
-    this.db = null;
+    this._db = null;
   }
 
-  initialize() {
-    const dbPath = config.getDbPath();
-    const dbDir = path.dirname(dbPath);
+  async initialize() {
+    const { apiUrl, apiKey, dbName } = parseMesahubUrl(config.mesahubUrl);
+    const client = new MesahubClient({ apiKey, apiUrl, routePrefix: 'api' });
+    this._db = client.db(dbName);
 
-    // Ensure data directory exists
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-      logger.info({ dir: dbDir }, 'Created data directory');
-    }
-
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-
-    this._initializeSchema();
-    logger.info({ dbPath }, 'Database initialized');
+    await this._initializeSchema();
+    logger.info({ dbName }, 'Database initialized');
   }
 
   /**
-   * Add columns that don't exist yet (safe to run on every boot).
+   * Add columns/tables that don't exist yet (safe to run on every boot).
    */
-  _runMigrations() {
+  async _runMigrations() {
     const migrations = [
       `ALTER TABLE services ADD COLUMN railway_service_id TEXT NOT NULL DEFAULT ''`,
       `ALTER TABLE services ADD COLUMN env_var_key TEXT NOT NULL DEFAULT ''`,
@@ -70,16 +103,15 @@ class DatabaseManager {
     ];
     for (const sql of migrations) {
       try {
-        this.db.exec(sql);
+        await this._db.exec(sql);
       } catch {
-        // Column already exists — ignore
+        // Column/index already exists — ignore
       }
     }
   }
 
-  _initializeSchema() {
-    // Services to back up - uses Railway env var key instead of storing raw credentials
-    this.db.exec(`
+  async _initializeSchema() {
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS services (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -91,11 +123,9 @@ class DatabaseManager {
       )
     `);
 
-    // Migration: add columns that may be missing from pre-existing databases
-    this._runMigrations();
+    await this._runMigrations();
 
-    // Individual backup files
-    this.db.exec(`
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS backups (
         id TEXT PRIMARY KEY,
         service_id TEXT NOT NULL,
@@ -110,8 +140,7 @@ class DatabaseManager {
       )
     `);
 
-    // Restore operations
-    this.db.exec(`
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS restores (
         id TEXT PRIMARY KEY,
         backup_id TEXT NOT NULL,
@@ -123,8 +152,7 @@ class DatabaseManager {
       )
     `);
 
-    // Cron job definitions
-    this.db.exec(`
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
         job_type TEXT NOT NULL,
@@ -135,8 +163,7 @@ class DatabaseManager {
       )
     `);
 
-    // Audit log
-    this.db.exec(`
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS audit_log (
         id TEXT PRIMARY KEY,
         action TEXT NOT NULL,
@@ -147,82 +174,52 @@ class DatabaseManager {
       )
     `);
 
-    // Service metadata (tags) keyed by Railway service id
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS service_meta (
-        service_id TEXT PRIMARY KEY,
-        tags       TEXT NOT NULL DEFAULT '[]',
-        created_at INTEGER NOT NULL
-      )
-    `);
-
-    // Create indices for common queries
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_backups_service_id 
-        ON backups(service_id)
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_backups_started_at 
-        ON backups(started_at DESC)
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_restores_backup_id 
-        ON restores(backup_id)
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_audit_created_at 
-        ON audit_log(created_at DESC)
-    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_backups_service_id ON backups(service_id)
+    `).catch(() => {});
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_backups_started_at ON backups(started_at DESC)
+    `).catch(() => {});
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_restores_backup_id ON restores(backup_id)
+    `).catch(() => {});
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at DESC)
+    `).catch(() => {});
   }
 
   /**
-   * Get a prepared statement.
+   * Execute a SELECT and return all rows.
+   * Accepts positional `[...]` or named `{ key: value }` params.
    */
-  prepare(sql) {
-    if (!this.db) {
-      throw new Error('Database not initialized. Call initialize() first.');
-    }
-    return this.db.prepare(sql);
+  async all(sql, params = []) {
+    if (!this._db) throw new Error('Database not initialized');
+    const { sql: s, bindings } = toPositional(sql, params);
+    const result = await this._db.query(s, bindings);
+    return result.rows;
   }
 
   /**
-   * Execute a statement and return all rows.
+   * Execute a SELECT and return the first row (or undefined).
    */
-  all(sql, params = {}) {
-    return this.prepare(sql).all(params);
+  async get(sql, params = []) {
+    if (!this._db) throw new Error('Database not initialized');
+    const { sql: s, bindings } = toPositional(sql, params);
+    const result = await this._db.query(s, bindings);
+    return result.rows[0];
   }
 
   /**
-   * Execute a statement and return the first row.
+   * Execute a write statement (INSERT / UPDATE / DELETE).
    */
-  get(sql, params = {}) {
-    return this.prepare(sql).get(params);
+  async run(sql, params = []) {
+    if (!this._db) throw new Error('Database not initialized');
+    const { sql: s, bindings } = toPositional(sql, params);
+    return this._db.exec(s, bindings);
   }
 
-  /**
-   * Execute a statement and return the result.
-   */
-  run(sql, params = {}) {
-    return this.prepare(sql).run(params);
-  }
-
-  /**
-   * Execute a transaction.
-   */
-  transaction(fn) {
-    const txn = this.db.transaction(fn);
-    return txn();
-  }
-
-  /**
-   * Close the database connection.
-   */
-  close() {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-    }
-  }
+  /** No-op: mesahub connections are HTTP — nothing to close. */
+  close() {}
 }
 
 export default new DatabaseManager();

@@ -26,7 +26,7 @@ export async function registerInfrastructureRoutes(server) {
         );
 
         // Merge in tags + type_override from local DB
-        const metaRows = db.all('SELECT service_id, tags, type_override FROM service_meta', []);
+        const metaRows = await db.all('SELECT service_id, tags, type_override FROM service_meta', []);
         const metaMap = {};
         for (const row of metaRows) {
           metaMap[row.service_id] = {
@@ -65,7 +65,7 @@ export async function registerInfrastructureRoutes(server) {
         if (!VALID.includes(typeOverride ?? null)) {
           return reply.status(400).send({ error: 'Invalid typeOverride value' });
         }
-        db.run(
+        await db.run(
           `INSERT INTO service_meta (service_id, tags, type_override, created_at)
            VALUES (?, '[]', ?, ?)
            ON CONFLICT(service_id) DO UPDATE SET type_override = excluded.type_override`,
@@ -102,7 +102,7 @@ export async function registerInfrastructureRoutes(server) {
           .filter(Boolean)
           .slice(0, 10);
 
-        db.run(
+        await db.run(
           `INSERT INTO service_meta (service_id, tags, created_at)
            VALUES (?, ?, ?)
            ON CONFLICT(service_id) DO UPDATE SET tags = excluded.tags`,
@@ -207,7 +207,7 @@ export async function registerInfrastructureRoutes(server) {
         const hours = Math.min(Number(request.query.hours) || 3, 3);
         const since = Math.floor(Date.now() / 1000) - hours * 3600;
 
-        const rows = db.all(
+        const rows = await db.all(
           `SELECT measurement, ts, value FROM metric_samples
            WHERE service_id = ? AND ts >= ?
            ORDER BY measurement, ts ASC`,
@@ -234,7 +234,7 @@ export async function registerInfrastructureRoutes(server) {
     async (request, reply) => {
       try {
         const { serviceId } = request.params;
-        const policy = db.get(
+        const policy = await db.get(
           `SELECT * FROM restart_policies WHERE service_id = ?`,
           [serviceId]
         );
@@ -282,7 +282,7 @@ export async function registerInfrastructureRoutes(server) {
         }
 
         const now = Math.floor(Date.now() / 1000);
-        db.run(
+        await db.run(
           `INSERT INTO restart_policies
              (service_id, enabled, cpu_threshold, mem_threshold_gb, window_minutes,
               violation_ratio, restart_cron, cooldown_minutes, updated_at)
@@ -300,7 +300,7 @@ export async function registerInfrastructureRoutes(server) {
            window_minutes, violation_ratio, restart_cron || null, cooldown_minutes, now]
         );
 
-        const saved = db.get(`SELECT * FROM restart_policies WHERE service_id = ?`, [serviceId]);
+        const saved = await db.get(`SELECT * FROM restart_policies WHERE service_id = ?`, [serviceId]);
 
         // Reload cron tasks in the monitor with new policy
         restartMonitor.reloadPolicy(serviceId, saved);
@@ -323,7 +323,7 @@ export async function registerInfrastructureRoutes(server) {
     { onRequest: authHook },
     async (_, reply) => {
       try {
-        const policies = db.all('SELECT * FROM restart_policies ORDER BY updated_at DESC');
+        const policies = await db.all('SELECT * FROM restart_policies ORDER BY updated_at DESC');
         return reply.send({ policies });
       } catch (error) {
         logger.error(error, 'Failed to fetch restart policies');
@@ -372,7 +372,7 @@ export async function registerInfrastructureRoutes(server) {
         await railwayClient.updateServiceVariable(
           serviceId, key, String(value), config.railwayEnvironmentId, config.railwayProjectId
         );
-        db.run(
+        await db.run(
           'INSERT INTO audit_log (id, action, actor, target, created_at) VALUES (?, ?, ?, ?, ?)',
           [randomUUID(), 'variable.update', 'admin', `${serviceId}:${key}`, Math.floor(Date.now() / 1000)]
         );

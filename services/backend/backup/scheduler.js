@@ -28,13 +28,13 @@ class BackupScheduler {
   /**
    * Initialize scheduler: register all jobs from database.
    */
-  initialize() {
+  async initialize() {
     try {
       // Ensure default jobs exist
-      this._ensureDefaultJobs();
+      await this._ensureDefaultJobs();
 
       // Load all enabled jobs and schedule them
-      const jobs = db.all('SELECT * FROM jobs WHERE enabled = 1');
+      const jobs = await db.all('SELECT * FROM jobs WHERE enabled = 1');
 
       for (const job of jobs) {
         this.schedule(job.id, job.schedule, job.job_type);
@@ -50,7 +50,7 @@ class BackupScheduler {
   /**
    * Ensure default backup jobs exist in database.
    */
-  _ensureDefaultJobs() {
+  async _ensureDefaultJobs() {
     const defaults = [
       { type: 'backup_hourly', schedule: '0 * * * *' }, // Every hour
       { type: 'backup_daily', schedule: '0 0 * * *' }, // Every day at midnight
@@ -60,20 +60,15 @@ class BackupScheduler {
     ];
 
     for (const def of defaults) {
-      const existing = db.get('SELECT id FROM jobs WHERE job_type = :type', {
-        type: def.type,
-      });
+      const existing = await db.get('SELECT id FROM jobs WHERE job_type = ?', [
+        def.type,
+      ]);
 
       if (!existing) {
         const jobId = randomUUID();
-        db.run(
-          `INSERT INTO jobs (id, job_type, schedule, enabled) 
-           VALUES (:id, :type, :schedule, 1)`,
-          {
-            id: jobId,
-            type: def.type,
-            schedule: def.schedule,
-          }
+        await db.run(
+          `INSERT INTO jobs (id, job_type, schedule, enabled) VALUES (?, ?, ?, 1)`,
+          [jobId, def.type, def.schedule]
         );
         logger.info({ jobType: def.type }, 'Created default job');
       }
@@ -138,24 +133,17 @@ class BackupScheduler {
 
       const duration = Date.now() - startTime;
       const interval = JOB_INTERVALS[jobType] ?? 3600;
-      db.run(
-        `UPDATE jobs SET last_run_at = :lastRun, next_run_at = :nextRun WHERE id = :id`,
-        {
-          lastRun: Math.floor(Date.now() / 1000),
-          nextRun: Math.floor(Date.now() / 1000) + interval,
-          id: jobId,
-        }
+      await db.run(
+        `UPDATE jobs SET last_run_at = ?, next_run_at = ? WHERE id = ?`,
+        [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + interval, jobId]
       );
 
       logger.info({ jobType, duration }, 'Job completed');
     } catch (error) {
       logger.error(error, 'Job execution error');
-      db.run(
-        `UPDATE jobs SET last_run_at = :lastRun WHERE id = :id`,
-        {
-          lastRun: Math.floor(Date.now() / 1000),
-          id: jobId,
-        }
+      await db.run(
+        `UPDATE jobs SET last_run_at = ? WHERE id = ?`,
+        [Math.floor(Date.now() / 1000), jobId]
       );
     }
   }
@@ -165,7 +153,7 @@ class BackupScheduler {
    */
   async _runBackups(schedule) {
     try {
-      const services = db.all('SELECT * FROM services WHERE enabled = 1');
+      const services = await db.all('SELECT * FROM services WHERE enabled = 1');
 
       for (const service of services) {
         await this._backupService(service, schedule);
@@ -186,16 +174,9 @@ class BackupScheduler {
     try {
       // Create backup record
       const startedAt = Math.floor(Date.now() / 1000);
-      db.run(
-        `INSERT INTO backups (id, service_id, schedule, started_at, status) 
-         VALUES (:id, :serviceId, :schedule, :startedAt, :status)`,
-        {
-          id: backupId,
-          serviceId: service.id,
-          schedule: schedule,
-          startedAt: startedAt,
-          status: 'running',
-        }
+      await db.run(
+        `INSERT INTO backups (id, service_id, schedule, started_at, status) VALUES (?, ?, ?, ?, ?)`,
+        [backupId, service.id, schedule, startedAt, 'running']
       );
 
       logger.info({ serviceId: service.id, schedule }, 'Starting backup');
@@ -223,33 +204,18 @@ class BackupScheduler {
 
       // Update backup record with success
       const finishedAt = Math.floor(Date.now() / 1000);
-      db.run(
-        `UPDATE backups SET status = :status, finished_at = :finishedAt, size_bytes = :size, location = :location 
-         WHERE id = :id`,
-        {
-          status: 'success',
-          finishedAt: finishedAt,
-          size: result.size,
-          location: result.filename,
-          id: backupId,
-        }
+      await db.run(
+        `UPDATE backups SET status = ?, finished_at = ?, size_bytes = ?, location = ? WHERE id = ?`,
+        ['success', finishedAt, result.size, result.filename, backupId]
       );
 
       // Enforce retention policy
       await enforceRetention(service.id);
 
       // Audit log
-      db.run(
-        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) 
-         VALUES (:id, :action, :actor, :target, :meta, :createdAt)`,
-        {
-          id: randomUUID(),
-          action: 'backup.completed',
-          actor: 'scheduler',
-          target: service.id,
-          meta: JSON.stringify({ schedule, size: result.size }),
-          createdAt: finishedAt,
-        }
+      await db.run(
+        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), 'backup.completed', 'scheduler', service.id, JSON.stringify({ schedule, size: result.size }), finishedAt]
       );
 
       logger.info(
@@ -264,28 +230,15 @@ class BackupScheduler {
       );
 
       const finishedAt = Math.floor(Date.now() / 1000);
-      db.run(
-        `UPDATE backups SET status = :status, finished_at = :finishedAt, error = :error WHERE id = :id`,
-        {
-          status: 'failed',
-          finishedAt: finishedAt,
-          error: error.message,
-          id: backupId,
-        }
+      await db.run(
+        `UPDATE backups SET status = ?, finished_at = ?, error = ? WHERE id = ?`,
+        ['failed', finishedAt, error.message, backupId]
       );
 
       // Audit log
-      db.run(
-        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) 
-         VALUES (:id, :action, :actor, :target, :meta, :createdAt)`,
-        {
-          id: randomUUID(),
-          action: 'backup.failed',
-          actor: 'scheduler',
-          target: service.id,
-          meta: JSON.stringify({ schedule, error: error.message }),
-          createdAt: finishedAt,
-        }
+      await db.run(
+        `INSERT INTO audit_log (id, action, actor, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), 'backup.failed', 'scheduler', service.id, JSON.stringify({ schedule, error: error.message }), finishedAt]
       );
     }
   }
@@ -295,9 +248,9 @@ class BackupScheduler {
    */
   async triggerBackup(serviceId, schedule) {
     try {
-      const service = db.get(
-        'SELECT * FROM services WHERE id = :id',
-        { id: serviceId }
+      const service = await db.get(
+        'SELECT * FROM services WHERE id = ?',
+        [serviceId]
       );
 
       if (!service) {

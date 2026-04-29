@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Load .env from project root
 const envPath = path.resolve(__dirname, '../../.env');
-const result = dotenv.config({ path: envPath, override: true });
+dotenv.config({ path: envPath, override: true });
 
 /**
  * Centralized configuration management.
@@ -16,7 +16,7 @@ class Config {
   constructor() {
     this.adminKey = this._requireEnv('ADMIN_KEY');
     this.sessionSecret = this._requireEnv('SESSION_SECRET');
-    
+
     // Validate session secret length
     if (this.sessionSecret.length < 32) {
       throw new Error('SESSION_SECRET must be at least 32 characters');
@@ -26,8 +26,10 @@ class Config {
     this.railwayProjectId = this._requireEnv('RAILWAY_PROJECT_ID');
     this.railwayEnvironmentId = this._requireEnv('RAILWAY_ENVIRONMENT_ID');
 
+    this.mesahubUrl = this._requireEnv('MESAHUB_URL');
+
     this.port = parseInt(process.env.PORT || '3000', 10);
-    this.dataDir = process.env.DATA_DIR || './data';
+    this.dataDir = process.env.DATA_DIR || '/data';
     this.logLevel = process.env.LOG_LEVEL || 'info';
     this.nodeEnv = process.env.NODE_ENV || 'development';
 
@@ -53,10 +55,6 @@ class Config {
 
   isDevelopment() {
     return this.nodeEnv === 'development';
-  }
-
-  getDbPath() {
-    return path.join(this.dataDir, 'railway-manage.sqlite');
   }
 
   getBackupDir() {

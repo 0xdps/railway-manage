@@ -24,7 +24,7 @@ const RETENTION_POLICIES = {
 export async function enforceRetention(serviceId) {
   try {
     for (const [schedule, limit] of Object.entries(RETENTION_POLICIES)) {
-      const backups = db.all(
+      const backups = await db.all(
         `SELECT id, location FROM backups 
          WHERE service_id = ? AND schedule = ? 
          ORDER BY started_at DESC`,
@@ -42,7 +42,7 @@ export async function enforceRetention(serviceId) {
             }
 
             // Delete from database
-            db.run('DELETE FROM backups WHERE id = ?', [backup.id]);
+            await db.run('DELETE FROM backups WHERE id = ?', [backup.id]);
 
             logger.info(
               { serviceId, schedule, backupId: backup.id },
@@ -70,7 +70,7 @@ export async function enforceRetention(serviceId) {
  */
 export async function cleanupExpiredBackups() {
   try {
-    const services = db.all('SELECT DISTINCT service_id FROM backups');
+    const services = await db.all('SELECT DISTINCT service_id FROM backups');
 
     for (const service of services) {
       await enforceRetention(service.service_id);
